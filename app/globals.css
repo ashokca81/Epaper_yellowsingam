@@ -1,0 +1,142 @@
+@import "tailwindcss";
+
+/* Native App-like Mobile Styles */
+@layer base {
+  /* Prevent pull-to-refresh on mobile for app-like feel */
+  html {
+    overscroll-behavior-y: contain;
+  }
+  
+  /* Safe area for notched devices */
+  :root {
+    --safe-area-top: env(safe-area-inset-top, 0px);
+    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  
+  /* Smooth scrolling */
+  * {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+  }
+  
+  /* Hide scrollbar on mobile for native feel */
+  @media (max-width: 768px) {
+    body {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    body::-webkit-scrollbar {
+      display: none;
+    }
+  }
+}
+
+@layer utilities {
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+  }
+  
+  /* Native app-like utilities */
+  .safe-top {
+    padding-top: var(--safe-area-top);
+  }
+  
+  .safe-bottom {
+    padding-bottom: var(--safe-area-bottom);
+  }
+  
+  /* Material Design 3 elevation shadows */
+  .elevation-1 {
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.14);
+  }
+  
+  .elevation-2 {
+    box-shadow: 0 3px 6px rgba(0,0,0,0.15), 0 2px 4px rgba(0,0,0,0.12);
+  }
+  
+  .elevation-3 {
+    box-shadow: 0 10px 20px rgba(0,0,0,0.15), 0 3px 6px rgba(0,0,0,0.10);
+  }
+  
+  /* Touch ripple effect */
+  .touch-ripple {
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .touch-ripple:active::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.1);
+    animation: ripple 0.3s ease-out;
+  }
+  
+  @keyframes ripple {
+    from {
+      opacity: 1;
+      transform: scale(0);
+    }
+    to {
+      opacity: 0;
+      transform: scale(2);
+    }
+  }
+  
+  /* Bottom nav spacing */
+  .pb-bottom-nav {
+    padding-bottom: calc(64px + var(--safe-area-bottom));
+  }
+  
+  /* Hide on mobile */
+  .hide-mobile {
+    @media (max-width: 768px) {
+      display: none !important;
+    }
+  }
+  
+  /* Show only on mobile */
+  .show-mobile {
+    display: none !important;
+    @media (max-width: 768px) {
+      display: flex !important;
+    }
+  }
+  
+  /* Hide scrollbar utility */
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  
+  /* Slide up animation for modals */
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+  
+  @keyframes slideUp {
+    from {
+      transform: translateY(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+}
