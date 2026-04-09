@@ -6,11 +6,12 @@ import { Home, Calendar, Newspaper, Download, Share2, ChevronLeft, ChevronRight,
 import { useState } from 'react';
 
 const navItems = [
-  { name: 'Home', href: '/', icon: Home, isModal: false },
-  { name: 'Latest', href: '/edition/latest', icon: Newspaper, isModal: false },
-  { name: 'Calendar', href: '#', icon: Calendar, isModal: true },
-  { name: 'Download', href: '/downloads', icon: Download, isModal: false },
-  { name: 'Share', href: '#', icon: Share2, isModal: 'share' },
+  { name: 'Home', href: '/', icon: Home, isModal: false as const },
+  // Latest should always open today's edition based on date, not a static path.
+  { name: 'Latest', href: '#', icon: Newspaper, isModal: 'latest' as const },
+  { name: 'Calendar', href: '#', icon: Calendar, isModal: true as const },
+  { name: 'Download', href: '/downloads', icon: Download, isModal: false as const },
+  { name: 'Share', href: '#', icon: Share2, isModal: 'share' as const },
 ];
 
 const MONTH_NAMES = [
@@ -40,6 +41,9 @@ export default function BottomNav() {
     } else if (item.isModal === 'share') {
       e.preventDefault();
       handleShare();
+    } else if (item.isModal === 'latest') {
+      e.preventDefault();
+      handleLatestClick();
     }
   };
 
@@ -144,6 +148,34 @@ export default function BottomNav() {
       }
     } catch (err) {
       setError('ఎర్రర్ వచ్చింది');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Bottom-nav "Latest" – jump directly to today's edition (same logic as handleTodayClick,
+  // but without opening the calendar modal UI)
+  const handleLatestClick = async () => {
+    setLoading(true);
+    setError('');
+
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    const dateStr = `${yyyy}-${mm}-${dd}`;
+
+    try {
+      const response = await fetch(`/api/editions/by-date?date=${dateStr}`);
+      const data = await response.json();
+
+      if (data.found && data.edition) {
+        router.push(`/edition/${data.edition.alias}`);
+      } else {
+        alert('ఈ రోజు ఎడిషన్ ఇంకా అప్‌లోడ్ కాలేదు');
+      }
+    } catch (err) {
+      alert('ఎర్రర్ వచ్చింది. మళ్ళీ ప్రయత్నించండి');
     } finally {
       setLoading(false);
     }
