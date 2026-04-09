@@ -25,24 +25,32 @@ export async function generateMetadata(
       return {};
     }
     
-    // Use the first page of the paper as the OG Image, otherwise fallback to logo
+    // OG image: first page URL from DB (e.g. Cloudflare R2 public URL). Must be https for WhatsApp/Facebook.
     const pageImage = edition.pages?.[0]?.url || '/logo.png';
     const baseUrl = process.env.NEXTAUTH_URL || 'https://yellowsingam.com';
     const absoluteImageUrl = pageImage.startsWith('http') ? pageImage : `${baseUrl}${pageImage}`;
-    
+    const editionSlug = typeof edition.alias === 'string' ? edition.alias : id;
+    const canonicalUrl = `${baseUrl.replace(/\/$/, '')}/edition/${editionSlug}`;
+
     return {
       title: `${edition.name} - Yellow Singam ePaper`,
       description: edition.metaDescription || `Read ${edition.name} online from Yellow Singam Daily ePaper.`,
+      alternates: {
+        canonical: canonicalUrl,
+      },
       openGraph: {
         title: edition.metaTitle || `${edition.name} - Yellow Singam`,
         description: edition.metaDescription || `Read ${edition.name} online from Yellow Singam Daily ePaper.`,
+        url: canonicalUrl,
+        siteName: 'Yellow Singam',
+        locale: 'te_IN',
         images: [
           {
             url: absoluteImageUrl,
             width: 800,
             height: 1200,
             alt: `${edition.name} Front Page`,
-          }
+          },
         ],
         type: 'article',
       },
@@ -51,7 +59,7 @@ export async function generateMetadata(
         title: edition.metaTitle || `${edition.name} - Yellow Singam`,
         description: edition.metaDescription || `Read ${edition.name} online from Yellow Singam Daily ePaper.`,
         images: [absoluteImageUrl],
-      }
+      },
     };
   } catch (error) {
     console.error('Metadata fetch error:', error);

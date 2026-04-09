@@ -10,6 +10,8 @@ const nextConfig: NextConfig = {
   },
   // Allow access to remote image placeholder.
   images: {
+    // Next.js 15 defaults to attachment on /_next/image; inline lets "Open image in new tab" display in-browser.
+    contentDispositionType: 'inline',
     remotePatterns: [
       {
         protocol: 'https',

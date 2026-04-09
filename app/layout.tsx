@@ -6,9 +6,16 @@ import BottomNav from '@/components/BottomNav';
 import Footer from '@/components/Footer';
 import Providers from '@/components/Providers';
 
+const siteUrl = process.env.NEXTAUTH_URL || 'https://yellowsingam.com';
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: 'Yellow Singam - Telugu Daily ePaper',
   description: 'Read Yellow Singam Telugu Daily ePaper online.',
+  icons: {
+    icon: [{ url: '/logo.png', type: 'image/png' }],
+    apple: [{ url: '/logo.png', type: 'image/png' }],
+  },
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,

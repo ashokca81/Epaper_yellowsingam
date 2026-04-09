@@ -154,6 +154,7 @@ export default function Home() {
                           fill
                           className="object-cover group-hover:scale-105 transition-transform duration-300"
                           sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
+                          unoptimized
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center bg-gray-200">

@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronLeft, ChevronRight, ZoomIn, Crop, X, Share2, Download, Copy, ExternalLink, Facebook, MessageCircle, Linkedin, Send, Mail, Twitter, Image as ImageIcon, Maximize, Minimize2, Map, Loader2, Calendar, MoreHorizontal, RotateCcw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ZoomIn, Crop, X, Share2, Copy, ExternalLink, Facebook, MessageCircle, Linkedin, Send, Mail, Image as ImageIcon, Maximize, Minimize2, Map, Loader2, Calendar, MoreHorizontal, RotateCcw } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useState, use, useRef, useEffect } from 'react';
@@ -27,8 +27,6 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(0);
   const [cropImageLoaded, setCropImageLoaded] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [downloadToast, setDownloadToast] = useState<string | null>(null);
   const [isZoomOpen, setIsZoomOpen] = useState(false);
   const [isFitToScreen, setIsFitToScreen] = useState(false);
   const [isCropOpen, setIsCropOpen] = useState(false);
@@ -331,43 +329,6 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
     });
   };
 
-  const handleGeneratePreviewImage = async () => {
-    const currentPageUrl = getCurrentPageUrl();
-    if (!currentPageUrl) {
-      alert('No image available to download');
-      return;
-    }
-
-    setIsDownloading(true);
-    setDownloadToast('Preparing cropped image...');
-
-    try {
-      // Use server-side crop API for reliable cropping
-      const filename = `${edition?.name || 'clip'}-cropped.png`;
-      const cropUrl = `/api/crop?url=${encodeURIComponent(currentPageUrl)}&x=${crop.x}&y=${crop.y}&w=${crop.w}&h=${crop.h}&filename=${encodeURIComponent(filename)}`;
-
-      const link = document.createElement('a');
-      link.href = cropUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      setDownloadToast('Cropped image downloaded!');
-
-      // Reset download state after a delay
-      setTimeout(() => {
-        setIsDownloading(false);
-        setDownloadToast(null);
-      }, 2000);
-    } catch (error) {
-      setIsDownloading(false);
-      setDownloadToast('Download failed');
-      setTimeout(() => setDownloadToast(null), 2000);
-      console.error('Download failed:', error);
-    }
-  };
-
   const handleShareClick = (e: React.MouseEvent | React.PointerEvent) => {
     e.stopPropagation();
     const currentPageUrl = getCurrentPageUrl();
@@ -448,40 +409,6 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
     document.addEventListener('pointerup', handlePointerUp);
     document.addEventListener('pointercancel', handlePointerUp);
   };
-  const handleDownloadOriginal = async () => {
-    const currentPageUrl = getCurrentPageUrl();
-    if (!currentPageUrl) return;
-
-    setIsDownloading(true);
-    setDownloadToast('Preparing download...');
-
-    try {
-      // Use download proxy to force download instead of opening in browser
-      const filename = `${edition?.name || 'page'}-${currentPage + 1}.jpg`;
-      const downloadUrl = `/api/download?url=${encodeURIComponent(currentPageUrl)}&filename=${encodeURIComponent(filename)}`;
-
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      setDownloadToast('Download started!');
-
-      // Reset download state after a delay
-      setTimeout(() => {
-        setIsDownloading(false);
-        setDownloadToast(null);
-      }, 2000);
-    } catch (error) {
-      setIsDownloading(false);
-      setDownloadToast('Download failed');
-      setTimeout(() => setDownloadToast(null), 2000);
-      console.error('Download failed:', error);
-    }
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -530,33 +457,6 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
             <button onClick={() => setIsZoomOpen(true)} className="p-2.5 rounded-full active:bg-white/20 transition-all duration-200 active:scale-95 hover:bg-white/10">
               <ZoomIn size={20} />
             </button>
-            <button
-              onClick={handleDownloadOriginal}
-              disabled={isDownloading}
-              className={`p-2.5 rounded-full transition-colors ${isDownloading ? 'bg-white/20' : 'active:bg-white/10'
-                }`}
-            >
-              {isDownloading ? (
-                <svg className="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24">
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                    fill="none"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8v8H4z"
-                  />
-                </svg>
-              ) : (
-                <Download size={20} />
-              )}
-            </button>
             <button onClick={() => setIsCropOpen(true)} className="p-2.5 rounded-full active:bg-[#D4A800]/20 transition-all duration-200 active:scale-95 hover:bg-[#D4A800]/10">
               <Crop size={20} className="text-[#D4A800]" />
             </button>
@@ -595,40 +495,6 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
           </button>
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-          <button
-            onClick={handleDownloadOriginal}
-            disabled={isDownloading}
-            className={`flex items-center gap-1 text-white px-3 py-1.5 rounded-sm text-sm transition-colors min-w-[100px] justify-center ${isDownloading ? 'bg-green-500 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
-              }`}
-            title="Download Original Image"
-          >
-            {isDownloading ? (
-              <>
-                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                    fill="none"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8v8H4z"
-                  />
-                </svg>
-                <span className="hidden sm:inline">Downloading...</span>
-              </>
-            ) : (
-              <>
-                <Download size={16} />
-                <span className="hidden sm:inline">Download</span>
-              </>
-            )}
-          </button>
           <button onClick={() => setIsZoomOpen(true)} className="flex items-center gap-2 bg-[#1f1f1f] text-white px-4 py-2 rounded-lg text-sm hover:bg-[#2a2a2a] active:bg-[#1f1f1f] transition-all duration-200 active:scale-95 shadow-md hover:shadow-lg font-medium">
             <ZoomIn size={16} /> <span className="hidden sm:inline">Zoom</span>
           </button>
@@ -655,6 +521,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
             className="object-contain"
             sizes="100vw"
             priority
+            unoptimized
           />
 
           {/* Swipe controls */}
@@ -841,6 +708,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                     fill
                     className="object-cover border border-gray-200"
                     sizes="(max-width: 768px) 120px, 200px"
+                    unoptimized
                   />
                 </div>
               </button>
@@ -863,6 +731,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                 className="object-contain"
                 referrerPolicy="no-referrer"
                 sizes="(max-width: 1024px) 100vw, 800px"
+                unoptimized
               />
 
               {/* Crop Overlay */}
@@ -985,6 +854,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                   sizes="100vw"
                   priority
                   draggable={false}
+                  unoptimized
                 />
               </div>
             </div>
@@ -1070,22 +940,6 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                     <Crop size={18} className="text-black" />
                     <span className="text-black text-sm font-bold">Crop</span>
                   </button>
-
-                  <button
-                    onClick={handleDownloadOriginal}
-                    disabled={isDownloading}
-                    className="px-4 py-3 bg-white/10 backdrop-blur-sm rounded-full flex items-center gap-2 active:bg-white/20 transition-all duration-200 disabled:opacity-50"
-                  >
-                    {isDownloading ? (
-                      <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                      </svg>
-                    ) : (
-                      <Download size={18} className="text-white" />
-                    )}
-                    <span className="text-white text-sm font-medium">{isDownloading ? 'Saving...' : 'Save'}</span>
-                  </button>
                 </div>
               </div>
             </div>
@@ -1133,6 +987,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                   referrerPolicy="no-referrer"
                   sizes="100vw"
                   onLoad={updateMiniMap}
+                  unoptimized
                 />
               </div>
 
@@ -1167,6 +1022,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                           fill
                           className="object-contain pointer-events-none"
                           referrerPolicy="no-referrer"
+                          unoptimized
                         />
                         {/* Viewport Indicator */}
                         <div
@@ -1282,34 +1138,6 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                   <Share2 size={24} />
                 </button>
                 <button
-                  className={`text-white p-3 rounded-sm transition-colors flex items-center justify-center min-w-[56px] ${isDownloading ? 'bg-blue-500 cursor-not-allowed' : 'bg-[#0088ff] hover:bg-blue-600'
-                    }`}
-                  title="Download Image"
-                  onClick={handleGeneratePreviewImage}
-                  disabled={isDownloading}
-                >
-                  {isDownloading ? (
-                    <svg className="animate-spin h-6 w-6" viewBox="0 0 24 24">
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                        fill="none"
-                      />
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8v8H4z"
-                      />
-                    </svg>
-                  ) : (
-                    <ImageIcon size={24} />
-                  )}
-                </button>
-                <button
                   onClick={() => {
                     if (navigator.clipboard && navigator.clipboard.writeText) {
                       navigator.clipboard.writeText(generatedLink)
@@ -1407,28 +1235,6 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
         </div>
       )}
 
-      {/* Download Toast Notification */}
-      {downloadToast && (
-        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-[9999] bg-gray-900 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 animate-pulse">
-          <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-              fill="none"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8v8H4z"
-            />
-          </svg>
-          <span className="text-sm font-medium">{downloadToast}</span>
-        </div>
-      )}
     </div>
   );
 }
