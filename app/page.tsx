@@ -67,6 +67,11 @@ export default function Home() {
     return diffDays <= 2;
   };
 
+const getProxyUrl = (rawUrl: string) => {
+  if (!rawUrl) return '';
+  return `/api/page-image?url=${encodeURIComponent(rawUrl)}`;
+};
+
   const renderAd = () => {
     if (!settings?.adEnabled) return null;
     return (
@@ -149,7 +154,7 @@ export default function Home() {
                     <div className="relative aspect-[2/3] w-full overflow-hidden bg-gray-100" suppressHydrationWarning>
                       {edition.pages && edition.pages[0]?.url ? (
                         <Image
-                          src={edition.pages[0].url}
+                          src={getProxyUrl(edition.pages[0].url)}
                           alt={edition.name}
                           fill
                           className="object-cover group-hover:scale-105 transition-transform duration-300"

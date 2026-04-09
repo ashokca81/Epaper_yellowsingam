@@ -77,6 +77,18 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
     return edition.pages[currentPage]?.url || '';
   };
 
+  // Proxy URL so that image requests go through epaper.yellowsingam.com instead of direct R2 hostname
+  const getCurrentPageProxyUrl = () => {
+    const raw = getCurrentPageUrl();
+    if (!raw) return '';
+    return `/api/page-image?url=${encodeURIComponent(raw)}`;
+  };
+
+  const getProxyUrl = (rawUrl: string) => {
+    if (!rawUrl) return '';
+    return `/api/page-image?url=${encodeURIComponent(rawUrl)}`;
+  };
+
   // Format date
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -515,7 +527,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
           onTouchEnd={isCropOpen ? handleTouchEnd : handleSwipeEnd}
         >
           <Image
-            src={getCurrentPageUrl()}
+            src={getCurrentPageProxyUrl()}
             alt="Main Page View"
             fill
             className="object-contain"
@@ -703,7 +715,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                 </div>
                 <div className="relative aspect-[2/3] w-full bg-gray-100">
                   <Image
-                    src={page.url}
+                    src={getProxyUrl(page.url)}
                     alt={`Page ${page.pageNum}`}
                     fill
                     className="object-cover border border-gray-200"
@@ -725,7 +737,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
           <div className="bg-gray-50">
             <div ref={containerRef} className="relative aspect-[2/3] w-full bg-white shadow-md border-b overflow-hidden touch-none">
               <Image
-                src={`${getCurrentPageUrl()}`}
+                src={getCurrentPageProxyUrl()}
                 alt="Main Page View"
                 fill
                 className="object-contain"
@@ -846,7 +858,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                 }}
               >
                 <Image
-                  src={`${getCurrentPageUrl()}`}
+                  src={getCurrentPageProxyUrl()}
                   alt="Zoomed Page View"
                   fill
                   className="object-contain pointer-events-none select-none"
@@ -979,7 +991,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
             >
               <div className={`bg-white shadow-sm ${isFitToScreen ? 'h-full w-full relative' : 'w-full'}`}>
                 <Image
-                  src={`${getCurrentPageUrl()}`}
+                  src={getCurrentPageProxyUrl()}
                   alt="Zoomed Page View"
                   width={1200}
                   height={1800}
@@ -1017,7 +1029,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                         title="Click to navigate"
                       >
                         <Image
-                          src={`${getCurrentPageUrl()}`}
+                          src={getCurrentPageProxyUrl()}
                           alt="Mini-map"
                           fill
                           className="object-contain pointer-events-none"
