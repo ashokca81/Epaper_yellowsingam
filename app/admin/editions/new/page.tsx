@@ -480,7 +480,8 @@ export default function PublishEdition() {
           let pageMeta: (typeof uploadedPages)[0];
           try {
             pageMeta = await uploadEditionPageViaPresign(folderName, i + 1, fullBlob, thumbBlob);
-          } catch {
+          } catch (presignErr) {
+            console.warn(`Presigned upload failed for page ${i + 1}, using fallback:`, presignErr);
             const fullFile = new File([fullBlob], `page_${i + 1}.webp`, { type: 'image/webp' });
             pageMeta = await uploadEditionPageViaApi(folderName, i + 1, fullFile);
           }
