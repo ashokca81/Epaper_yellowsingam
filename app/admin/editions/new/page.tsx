@@ -147,6 +147,55 @@ export default function PublishEdition() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState('');
 
+  const compressImageForUpload = async (file: File): Promise<File> => {
+    if (!file.type.startsWith('image/')) return file;
+
+    return new Promise((resolve) => {
+      const img = new window.Image();
+      const objectUrl = URL.createObjectURL(file);
+
+      img.onload = () => {
+        const maxW = 2200;
+        const maxH = 3300;
+        const ratio = Math.min(maxW / img.width, maxH / img.height, 1);
+        const targetW = Math.max(1, Math.round(img.width * ratio));
+        const targetH = Math.max(1, Math.round(img.height * ratio));
+
+        const canvas = document.createElement('canvas');
+        canvas.width = targetW;
+        canvas.height = targetH;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          URL.revokeObjectURL(objectUrl);
+          resolve(file);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, targetW, targetH);
+        canvas.toBlob(
+          (blob) => {
+            URL.revokeObjectURL(objectUrl);
+            if (!blob) {
+              resolve(file);
+              return;
+            }
+            const baseName = file.name.replace(/\.[^.]+$/, '');
+            resolve(new File([blob], `${baseName}.webp`, { type: 'image/webp' }));
+          },
+          'image/webp',
+          0.82
+        );
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(file);
+      };
+
+      img.src = objectUrl;
+    });
+  };
+
   // Drag and drop sensors
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -271,61 +320,100 @@ export default function PublishEdition() {
     setError('');
 
     try {
-      // Create FormData for file upload
+      const normalizedDate = new Date(formData.date).toISOString();
+      const folderName = formData.alias || normalizedDate;
+
+      const filesToUpload =
+        formData.uploadType === 'images'
+          ? await Promise.all(files.map((file) => compressImageForUpload(file)))
+          : files;
+
+      // Avoid 413 in production: upload pages one-by-one, then create edition with JSON metadata.
+      if (formData.uploadType === 'images') {
+        const uploadedPages: Array<{
+          filename: string;
+          url: string;
+          previewFilename?: string;
+          previewUrl?: string;
+          pageNum: number;
+        }> = [];
+
+        for (let i = 0; i < filesToUpload.length; i++) {
+          const file = filesToUpload[i];
+          const singleUploadData = new FormData();
+          singleUploadData.append('file', file);
+          singleUploadData.append('kind', 'edition');
+          singleUploadData.append('folderName', folderName);
+          singleUploadData.append('pageNum', String(i + 1));
+
+          const uploadResponse = await fetch('/api/upload/image', {
+            method: 'POST',
+            body: singleUploadData,
+          });
+
+          if (!uploadResponse.ok) {
+            const uploadError = await uploadResponse.json().catch(() => null);
+            throw new Error(uploadError?.error || `Page ${i + 1} upload failed`);
+          }
+
+          const uploadJson = await uploadResponse.json();
+          if (!uploadJson?.page) {
+            throw new Error(`Page ${i + 1} upload response invalid`);
+          }
+          uploadedPages.push(uploadJson.page);
+
+          const perFileProgress = Math.round(((i + 1) / filesToUpload.length) * 90);
+          setUploadProgress(Math.max(1, perFileProgress));
+        }
+
+        const createResponse = await fetch('/api/editions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...formData,
+            alias: folderName,
+            date: normalizedDate,
+            pages: uploadedPages,
+          }),
+        });
+
+        if (!createResponse.ok) {
+          const createError = await createResponse.json().catch(() => null);
+          throw new Error(createError?.error || 'Edition create failed');
+        }
+
+        setUploadProgress(100);
+        router.push('/admin/editions');
+        return;
+      }
+
+      // Keep existing multipart flow for non-image upload types.
       const uploadData = new FormData();
       uploadData.append('name', formData.name);
-      uploadData.append('alias', formData.alias);
-      uploadData.append('date', new Date(formData.date).toISOString());
+      uploadData.append('alias', folderName);
+      uploadData.append('date', normalizedDate);
       uploadData.append('metaTitle', formData.metaTitle);
       uploadData.append('metaDescription', formData.metaDescription);
       uploadData.append('category', formData.category);
       uploadData.append('status', formData.status);
       uploadData.append('uploadType', formData.uploadType);
-      
-      files.forEach((file, index) => {
-        uploadData.append(`file_${index}`, file);
+      filesToUpload.forEach((file, index) => uploadData.append(`file_${index}`, file));
+
+      const multipartResponse = await fetch('/api/editions', {
+        method: 'POST',
+        body: uploadData,
       });
 
-      const result = await new Promise<{ ok: boolean; data?: any; error?: string }>((resolve) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', '/api/editions');
-
-        xhr.upload.onprogress = (event) => {
-          if (!event.lengthComputable) return;
-          const percent = Math.round((event.loaded / event.total) * 100);
-          setUploadProgress(Math.min(99, Math.max(1, percent)));
-        };
-
-        xhr.onload = () => {
-          let data: any = null;
-          try {
-            data = xhr.responseText ? JSON.parse(xhr.responseText) : null;
-          } catch {
-            data = null;
-          }
-
-          if (xhr.status >= 200 && xhr.status < 300) {
-            setUploadProgress(100);
-            resolve({ ok: true, data });
-          } else {
-            resolve({ ok: false, data, error: data?.error || 'Upload failed' });
-          }
-        };
-
-        xhr.onerror = () => {
-          resolve({ ok: false, error: 'Network error during upload' });
-        };
-
-        xhr.send(uploadData);
-      });
-
-      if (result.ok) {
-        router.push('/admin/editions');
-      } else {
-        setError(result.error || 'Upload failed');
+      if (!multipartResponse.ok) {
+        const data = await multipartResponse.json().catch(() => null);
+        throw new Error(data?.error || 'Upload failed');
       }
+      setUploadProgress(100);
+      router.push('/admin/editions');
     } catch (err) {
-      setError('An error occurred during upload');
+      setError(err instanceof Error ? err.message : 'An error occurred during upload');
     } finally {
       setUploading(false);
       setUploadProgress(0);

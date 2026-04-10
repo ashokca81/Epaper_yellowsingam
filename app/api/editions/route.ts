@@ -57,23 +57,60 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
-    
-    const name = formData.get('name') as string;
-    const alias = formData.get('alias') as string;
-    const date = formData.get('date') as string;
-    const metaTitle = formData.get('metaTitle') as string;
-    const metaDescription = formData.get('metaDescription') as string;
-    const category = formData.get('category') as string;
-    const status = formData.get('status') as string;
-    const uploadType = formData.get('uploadType') as string;
+    const contentType = request.headers.get('content-type') || '';
+    const isJson = contentType.includes('application/json');
+
+    const payload = isJson ? await request.json() : null;
+    const formData = isJson ? null : await request.formData();
+
+    const name = isJson ? payload?.name : (formData?.get('name') as string);
+    const alias = isJson ? payload?.alias : (formData?.get('alias') as string);
+    const date = isJson ? payload?.date : (formData?.get('date') as string);
+    const metaTitle = isJson ? payload?.metaTitle : (formData?.get('metaTitle') as string);
+    const metaDescription = isJson ? payload?.metaDescription : (formData?.get('metaDescription') as string);
+    const category = isJson ? payload?.category : (formData?.get('category') as string);
+    const status = isJson ? payload?.status : (formData?.get('status') as string);
+    const uploadType = isJson ? payload?.uploadType : (formData?.get('uploadType') as string);
 
     // Validate required fields
     if (!name || !date || !status || !uploadType) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Process uploaded files and upload to Cloudflare R2
+    // JSON mode: pages are already uploaded separately.
+    if (isJson) {
+      const client = await clientPromise;
+      const db = client.db('yellowsingam_epaper');
+      const folderName = alias || date;
+      const pages = Array.isArray(payload?.pages) ? payload.pages : [];
+
+      const edition = {
+        name,
+        alias: folderName,
+        date: new Date(date),
+        metaTitle,
+        metaDescription,
+        category,
+        status: status === 'live' ? 'published' : status === 'scheduled' ? 'scheduled' : 'draft',
+        uploadType,
+        pages,
+        pageCount: pages.length,
+        views: 0,
+        downloads: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const result = await db.collection('editions').insertOne(edition);
+      return NextResponse.json({
+        success: true,
+        editionId: result.insertedId,
+        message: 'Edition created successfully',
+        pages: pages.length,
+      });
+    }
+
+    // Multipart mode: process uploaded files and upload to Cloudflare R2
     const files: {
       filename: string;
       url: string;
@@ -85,7 +122,7 @@ export async function POST(request: NextRequest) {
     
     const folderName = alias || date;
 
-    while (formData.has(`file_${fileIndex}`)) {
+    while (formData?.has(`file_${fileIndex}`)) {
       const file = formData.get(`file_${fileIndex}`) as File;
       if (file) {
         const bytes = await file.arrayBuffer();
