@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidateTag } from 'next/cache';
 import clientPromise from '@/lib/mongodb';
 import { uploadToR2 } from '@/lib/r2';
 import path from 'path';
@@ -101,6 +102,7 @@ export async function POST(request: NextRequest) {
       };
 
       const result = await db.collection('editions').insertOne(edition);
+      revalidateTag('home-data');
       return NextResponse.json({
         success: true,
         editionId: result.insertedId,
@@ -204,6 +206,7 @@ export async function POST(request: NextRequest) {
     };
 
     const result = await db.collection('editions').insertOne(edition);
+    revalidateTag('home-data');
 
     return NextResponse.json({ 
       success: true, 
