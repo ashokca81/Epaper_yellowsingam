@@ -168,10 +168,10 @@ export default function PublishEdition() {
 
       img.onload = async () => {
         try {
-          let maxSide = Math.min(2000, Math.max(img.width, img.height));
-          let quality = 0.75;
+          let maxSide = Math.min(1800, Math.max(img.width, img.height));
+          let quality = 0.70;
 
-          for (let attempt = 0; attempt < 25; attempt++) {
+          for (let attempt = 0; attempt < 35; attempt++) {
             const ratio = Math.min(maxSide / img.width, maxSide / img.height, 1);
             const targetW = Math.max(1, Math.round(img.width * ratio));
             const targetH = Math.max(1, Math.round(img.height * ratio));
@@ -200,10 +200,10 @@ export default function PublishEdition() {
               return;
             }
 
-            if (quality > 0.30) {
-              quality -= 0.05;
+            if (quality > 0.20) {
+              quality -= 0.04;
             } else {
-              maxSide = Math.max(800, Math.floor(maxSide * 0.85));
+              maxSide = Math.max(600, Math.floor(maxSide * 0.82));
             }
           }
 
