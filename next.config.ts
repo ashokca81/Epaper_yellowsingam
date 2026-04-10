@@ -49,11 +49,12 @@ const nextConfig: NextConfig = {
     }
     return config;
   },
-  // Increase body size limit for large image uploads (50MB max)
+  // Increase body size limit for large image uploads (100MB max)
   api: {
     bodyParser: {
-      sizeLimit: '50mb',
+      sizeLimit: '100mb',
     },
+    responseLimit: '100mb',
   },
 };
 
