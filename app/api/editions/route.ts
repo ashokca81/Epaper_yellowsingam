@@ -40,14 +40,13 @@ export async function GET(request: NextRequest) {
       .limit(limit)
       .toArray();
     
+    const headers: Record<string, string> = showAll
+      ? { 'Cache-Control': 'no-store, no-cache, must-revalidate' }
+      : { 'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300' };
+
     return NextResponse.json(
       { editions },
-      {
-        headers: {
-          // Home page list does not change every second; let CDN cache briefly.
-          'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300',
-        },
-      }
+      { headers }
     );
   } catch (error) {
     console.error('Error fetching editions:', error);

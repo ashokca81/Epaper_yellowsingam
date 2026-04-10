@@ -56,7 +56,13 @@ export default function ManageEditions() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch('/api/editions?all=true');
+      const response = await fetch('/api/editions?all=true', {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      });
       const data = await response.json();
       if (data.editions) {
         setEditions(data.editions);
