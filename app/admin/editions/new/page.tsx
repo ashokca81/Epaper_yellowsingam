@@ -147,53 +147,192 @@ export default function PublishEdition() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState('');
 
-  const compressImageForUpload = async (file: File): Promise<File> => {
+  /** Keep under ~2MB so proxies (e.g. Vercel ~4.5MB) never reject; presigned path has no body limit. */
+  const MAX_FULL_WEBP_BYTES = 2 * 1024 * 1024;
+
+  const blobToWebp = (
+    canvas: HTMLCanvasElement,
+    quality: number
+  ): Promise<Blob | null> =>
+    new Promise((resolve) => {
+      canvas.toBlob((b) => resolve(b), 'image/webp', quality);
+    });
+
+  /** Resize + lower quality until file is small enough for /api/upload/image fallback. */
+  const compressFullWebpForUpload = async (file: File): Promise<Blob> => {
     if (!file.type.startsWith('image/')) return file;
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const img = new window.Image();
       const objectUrl = URL.createObjectURL(file);
 
-      img.onload = () => {
-        const maxW = 2200;
-        const maxH = 3300;
+      img.onload = async () => {
+        try {
+          let maxSide = Math.min(2000, Math.max(img.width, img.height));
+          let quality = 0.78;
+
+          for (let attempt = 0; attempt < 18; attempt++) {
+            const ratio = Math.min(maxSide / img.width, maxSide / img.height, 1);
+            const targetW = Math.max(1, Math.round(img.width * ratio));
+            const targetH = Math.max(1, Math.round(img.height * ratio));
+
+            const canvas = document.createElement('canvas');
+            canvas.width = targetW;
+            canvas.height = targetH;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              URL.revokeObjectURL(objectUrl);
+              reject(new Error('Canvas not available'));
+              return;
+            }
+            ctx.drawImage(img, 0, 0, targetW, targetH);
+
+            let blob = await blobToWebp(canvas, quality);
+            if (!blob) {
+              URL.revokeObjectURL(objectUrl);
+              reject(new Error('Could not encode image'));
+              return;
+            }
+
+            if (blob.size <= MAX_FULL_WEBP_BYTES) {
+              URL.revokeObjectURL(objectUrl);
+              resolve(blob);
+              return;
+            }
+
+            if (quality > 0.45) {
+              quality -= 0.06;
+            } else {
+              maxSide = Math.max(960, Math.floor(maxSide * 0.88));
+            }
+          }
+
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error('Image still too large after compression. Use smaller scans.'));
+        } catch (e) {
+          URL.revokeObjectURL(objectUrl);
+          reject(e);
+        }
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('Failed to read image'));
+      };
+
+      img.src = objectUrl;
+    });
+  };
+
+  const compressThumbWebp = async (file: File): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const img = new window.Image();
+      const objectUrl = URL.createObjectURL(file);
+      img.onload = async () => {
+        const maxW = 420;
+        const maxH = 630;
         const ratio = Math.min(maxW / img.width, maxH / img.height, 1);
         const targetW = Math.max(1, Math.round(img.width * ratio));
         const targetH = Math.max(1, Math.round(img.height * ratio));
-
         const canvas = document.createElement('canvas');
         canvas.width = targetW;
         canvas.height = targetH;
         const ctx = canvas.getContext('2d');
         if (!ctx) {
           URL.revokeObjectURL(objectUrl);
-          resolve(file);
+          reject(new Error('Canvas not available'));
           return;
         }
-
         ctx.drawImage(img, 0, 0, targetW, targetH);
-        canvas.toBlob(
-          (blob) => {
-            URL.revokeObjectURL(objectUrl);
-            if (!blob) {
-              resolve(file);
-              return;
-            }
-            const baseName = file.name.replace(/\.[^.]+$/, '');
-            resolve(new File([blob], `${baseName}.webp`, { type: 'image/webp' }));
-          },
-          'image/webp',
-          0.82
-        );
+        const blob = await blobToWebp(canvas, 0.68);
+        URL.revokeObjectURL(objectUrl);
+        if (!blob) {
+          reject(new Error('Thumb encode failed'));
+          return;
+        }
+        resolve(blob);
       };
-
       img.onerror = () => {
         URL.revokeObjectURL(objectUrl);
-        resolve(file);
+        reject(new Error('Failed to read image for thumb'));
       };
-
       img.src = objectUrl;
     });
+  };
+
+  const uploadEditionPageViaPresign = async (
+    folderName: string,
+    pageNum: number,
+    fullBlob: Blob,
+    thumbBlob: Blob
+  ) => {
+    const presignRes = await fetch('/api/editions/presign-upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderName, pageNum }),
+    });
+    if (!presignRes.ok) {
+      const err = await presignRes.json().catch(() => null);
+      throw new Error(err?.error || 'Could not get upload URLs');
+    }
+    const data = await presignRes.json();
+    const fullPut = await fetch(data.full.putUrl, {
+      method: 'PUT',
+      body: fullBlob,
+      headers: { 'Content-Type': 'image/webp' },
+    });
+    if (!fullPut.ok) {
+      throw new Error(`Full image upload failed (${fullPut.status})`);
+    }
+    const thumbPut = await fetch(data.thumb.putUrl, {
+      method: 'PUT',
+      body: thumbBlob,
+      headers: { 'Content-Type': 'image/webp' },
+    });
+    if (!thumbPut.ok) {
+      throw new Error(`Thumbnail upload failed (${thumbPut.status})`);
+    }
+    return {
+      filename: data.full.filename as string,
+      url: data.full.publicUrl as string,
+      previewFilename: data.thumb.filename as string,
+      previewUrl: data.thumb.publicUrl as string,
+      pageNum,
+    };
+  };
+
+  const uploadEditionPageViaApi = async (
+    folderName: string,
+    pageNum: number,
+    fullFile: File
+  ) => {
+    const singleUploadData = new FormData();
+    singleUploadData.append('file', fullFile);
+    singleUploadData.append('kind', 'edition');
+    singleUploadData.append('folderName', folderName);
+    singleUploadData.append('pageNum', String(pageNum));
+
+    const uploadResponse = await fetch('/api/upload/image', {
+      method: 'POST',
+      body: singleUploadData,
+    });
+
+    if (!uploadResponse.ok) {
+      const uploadError = await uploadResponse.json().catch(() => null);
+      throw new Error(uploadError?.error || `Page ${pageNum} upload failed (${uploadResponse.status})`);
+    }
+
+    const uploadJson = await uploadResponse.json();
+    if (!uploadJson?.page) {
+      throw new Error(`Page ${pageNum} upload response invalid`);
+    }
+    return uploadJson.page as {
+      filename: string;
+      url: string;
+      previewFilename?: string;
+      previewUrl?: string;
+      pageNum: number;
+    };
   };
 
   // Drag and drop sensors
@@ -323,12 +462,7 @@ export default function PublishEdition() {
       const normalizedDate = new Date(formData.date).toISOString();
       const folderName = formData.alias || normalizedDate;
 
-      const filesToUpload =
-        formData.uploadType === 'images'
-          ? await Promise.all(files.map((file) => compressImageForUpload(file)))
-          : files;
-
-      // Avoid 413 in production: upload pages one-by-one, then create edition with JSON metadata.
+      // Avoid 413: presigned PUT to R2 (no Next body), else tiny file to /api/upload/image.
       if (formData.uploadType === 'images') {
         const uploadedPages: Array<{
           filename: string;
@@ -338,31 +472,21 @@ export default function PublishEdition() {
           pageNum: number;
         }> = [];
 
-        for (let i = 0; i < filesToUpload.length; i++) {
-          const file = filesToUpload[i];
-          const singleUploadData = new FormData();
-          singleUploadData.append('file', file);
-          singleUploadData.append('kind', 'edition');
-          singleUploadData.append('folderName', folderName);
-          singleUploadData.append('pageNum', String(i + 1));
+        for (let i = 0; i < files.length; i++) {
+          const original = files[i];
+          const fullBlob = await compressFullWebpForUpload(original);
+          const thumbBlob = await compressThumbWebp(original);
 
-          const uploadResponse = await fetch('/api/upload/image', {
-            method: 'POST',
-            body: singleUploadData,
-          });
-
-          if (!uploadResponse.ok) {
-            const uploadError = await uploadResponse.json().catch(() => null);
-            throw new Error(uploadError?.error || `Page ${i + 1} upload failed`);
+          let pageMeta: (typeof uploadedPages)[0];
+          try {
+            pageMeta = await uploadEditionPageViaPresign(folderName, i + 1, fullBlob, thumbBlob);
+          } catch {
+            const fullFile = new File([fullBlob], `page_${i + 1}.webp`, { type: 'image/webp' });
+            pageMeta = await uploadEditionPageViaApi(folderName, i + 1, fullFile);
           }
+          uploadedPages.push(pageMeta);
 
-          const uploadJson = await uploadResponse.json();
-          if (!uploadJson?.page) {
-            throw new Error(`Page ${i + 1} upload response invalid`);
-          }
-          uploadedPages.push(uploadJson.page);
-
-          const perFileProgress = Math.round(((i + 1) / filesToUpload.length) * 90);
+          const perFileProgress = Math.round(((i + 1) / files.length) * 90);
           setUploadProgress(Math.max(1, perFileProgress));
         }
 
@@ -399,7 +523,7 @@ export default function PublishEdition() {
       uploadData.append('category', formData.category);
       uploadData.append('status', formData.status);
       uploadData.append('uploadType', formData.uploadType);
-      filesToUpload.forEach((file, index) => uploadData.append(`file_${index}`, file));
+      files.forEach((file, index) => uploadData.append(`file_${index}`, file));
 
       const multipartResponse = await fetch('/api/editions', {
         method: 'POST',
