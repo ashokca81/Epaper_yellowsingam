@@ -1,15 +1,18 @@
-'use client';
-
-import { useState, useEffect } from 'react';
+import 'server-only';
 import Link from 'next/link';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Flame, Loader2 } from 'lucide-react';
+import { Calendar as CalendarIcon, Flame } from 'lucide-react';
 import Image from 'next/image';
+import { unstable_cache } from 'next/cache';
 import EditionCalendar from '@/components/EditionCalendar';
+import clientPromise from '@/lib/mongodb';
+
+export const runtime = 'nodejs';
 
 interface EditionPage {
   filename: string;
   url: string;
   pageNum: number;
+  previewUrl?: string;
 }
 
 interface Edition {
@@ -21,39 +24,89 @@ interface Edition {
   status: string;
 }
 
-export default function Home() {
-  const [editions, setEditions] = useState<Edition[]>([]);
-  const [settings, setSettings] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+interface GlobalSettings {
+  siteName?: string;
+  adEnabled?: boolean;
+  adType?: 'google' | 'custom';
+  googleAdCode?: string;
+  customAdImage?: string;
+  customAdLink?: string;
+}
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [editionsRes, settingsRes] = await Promise.all([
-          fetch('/api/editions'),
-          fetch('/api/settings')
-        ]);
-        
-        const editionsData = await editionsRes.json();
-        const settingsData = await settingsRes.json();
-        
-        if (editionsData.editions) {
-          // API already filters out non-public editions securely, so just take what it gives
-          setEditions(editionsData.editions);
-        }
-        
-        if (settingsData.success && settingsData.settings) {
-          setSettings(settingsData.settings);
-        }
-      } catch (error) {
-        console.error('Error fetching data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+const getHomeData = unstable_cache(
+  async () => {
+    try {
+      const client = await clientPromise;
+      const db = client.db('yellowsingam_epaper');
 
-    fetchData();
-  }, []);
+      const [editionsRaw, settingsRaw] = await Promise.all([
+        db
+          .collection('editions')
+          .find(
+            {
+              $or: [
+                { status: 'published' },
+                { status: 'scheduled', date: { $lte: new Date() } },
+              ],
+            },
+            {
+              projection: {
+                name: 1,
+                alias: 1,
+                date: 1,
+                pages: { $slice: 1 },
+                status: 1,
+              },
+            }
+          )
+          .sort({ date: -1 })
+          .limit(30)
+          .toArray(),
+        db.collection('settings').findOne(
+          { type: 'global' },
+          {
+            projection: {
+              siteName: 1,
+              adEnabled: 1,
+              adType: 1,
+              googleAdCode: 1,
+              customAdImage: 1,
+              customAdLink: 1,
+            },
+          }
+        ),
+      ]);
+
+      const editions: Edition[] = editionsRaw.map((edition: any) => ({
+        _id: String(edition._id),
+        name: edition.name || '',
+        alias: edition.alias || '',
+        date:
+          edition.date instanceof Date
+            ? edition.date.toISOString()
+            : String(edition.date || ''),
+        pages: Array.isArray(edition.pages) ? edition.pages : [],
+        status: edition.status || '',
+      }));
+
+      return {
+        editions,
+        settings: (settingsRaw || {}) as GlobalSettings,
+      };
+    } catch (error) {
+      console.error('Home data fetch failed:', error);
+      return {
+        editions: [] as Edition[],
+        settings: {} as GlobalSettings,
+      };
+    }
+  },
+  ['home-data'],
+  { revalidate: 120 }
+);
+
+export default async function Home() {
+  const { editions, settings } = await getHomeData();
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -69,7 +122,8 @@ export default function Home() {
 
 const getProxyUrl = (rawUrl: string) => {
   if (!rawUrl) return '';
-  return `/api/page-image?url=${encodeURIComponent(rawUrl)}`;
+  // Serve directly from CDN source to remove app proxy latency.
+  return rawUrl;
 };
 
   const renderAd = () => {
@@ -123,11 +177,7 @@ const getProxyUrl = (rawUrl: string) => {
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Main Content - Grid */}
         <div className="flex-1">
-          {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 className="w-8 h-8 animate-spin text-[#D4A800]" />
-            </div>
-          ) : editions.length === 0 ? (
+          {editions.length === 0 ? (
             <div className="text-center py-20">
               <CalendarIcon size={48} className="mx-auto text-gray-300 mb-4" />
               <p className="text-gray-500">No editions available yet</p>
@@ -137,7 +187,7 @@ const getProxyUrl = (rawUrl: string) => {
             <>
               {/* Mobile: 2 column card grid with Material Design style */}
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 md:gap-4">
-                {editions.map((edition) => (
+                {editions.map((edition, index) => (
                   <Link 
                     href={`/edition/${edition.alias}`} 
                     key={edition._id} 
@@ -154,12 +204,13 @@ const getProxyUrl = (rawUrl: string) => {
                     <div className="relative aspect-[2/3] w-full overflow-hidden bg-gray-100" suppressHydrationWarning>
                       {edition.pages && edition.pages[0]?.url ? (
                         <Image
-                          src={getProxyUrl(edition.pages[0].url)}
+                          src={getProxyUrl(edition.pages[0].previewUrl || edition.pages[0].url)}
                           alt={edition.name}
                           fill
                           className="object-cover group-hover:scale-105 transition-transform duration-300"
                           sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
-                          unoptimized
+                          priority={index < 2}
+                          loading={index < 2 ? 'eager' : 'lazy'}
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center bg-gray-200">

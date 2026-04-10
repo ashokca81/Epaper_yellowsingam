@@ -144,6 +144,7 @@ export default function PublishEdition() {
   const [previews, setPreviews] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState('');
 
   // Drag and drop sensors
@@ -254,6 +255,7 @@ export default function PublishEdition() {
     });
     setFiles([]);
     setPreviews([]);
+    setUploadProgress(0);
     setError('');
   };
 
@@ -265,6 +267,7 @@ export default function PublishEdition() {
     }
 
     setUploading(true);
+    setUploadProgress(0);
     setError('');
 
     try {
@@ -283,21 +286,49 @@ export default function PublishEdition() {
         uploadData.append(`file_${index}`, file);
       });
 
-      const response = await fetch('/api/editions', {
-        method: 'POST',
-        body: uploadData,
+      const result = await new Promise<{ ok: boolean; data?: any; error?: string }>((resolve) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/editions');
+
+        xhr.upload.onprogress = (event) => {
+          if (!event.lengthComputable) return;
+          const percent = Math.round((event.loaded / event.total) * 100);
+          setUploadProgress(Math.min(99, Math.max(1, percent)));
+        };
+
+        xhr.onload = () => {
+          let data: any = null;
+          try {
+            data = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+          } catch {
+            data = null;
+          }
+
+          if (xhr.status >= 200 && xhr.status < 300) {
+            setUploadProgress(100);
+            resolve({ ok: true, data });
+          } else {
+            resolve({ ok: false, data, error: data?.error || 'Upload failed' });
+          }
+        };
+
+        xhr.onerror = () => {
+          resolve({ ok: false, error: 'Network error during upload' });
+        };
+
+        xhr.send(uploadData);
       });
 
-      if (response.ok) {
+      if (result.ok) {
         router.push('/admin/editions');
       } else {
-        const data = await response.json();
-        setError(data.error || 'Upload failed');
+        setError(result.error || 'Upload failed');
       }
     } catch (err) {
       setError('An error occurred during upload');
     } finally {
       setUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -541,7 +572,22 @@ export default function PublishEdition() {
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center justify-end gap-3">
+          <div className="space-y-3">
+            {uploading && (
+              <div className="w-full">
+                <div className="flex items-center justify-between text-sm text-gray-600 mb-1">
+                  <span>Uploading files...</span>
+                  <span className="font-semibold">{uploadProgress}%</span>
+                </div>
+                <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-[#3b5bdb] transition-all duration-200"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+              </div>
+            )}
+            <div className="flex items-center justify-end gap-3">
             <button
               onClick={handleSubmit}
               disabled={uploading}
@@ -561,11 +607,13 @@ export default function PublishEdition() {
             </button>
             <button
               onClick={handleReset}
+              disabled={uploading}
               className="flex items-center gap-2 px-6 py-3 bg-red-500 text-white rounded-xl font-semibold hover:bg-red-600 transition-colors"
             >
               <RefreshCw size={18} />
               Reset
             </button>
+          </div>
           </div>
         </div>
       </div>

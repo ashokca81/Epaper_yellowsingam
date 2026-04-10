@@ -55,14 +55,21 @@ export async function DELETE(
 
     // Delete files from R2
     if (edition.pages && edition.pages.length > 0) {
-      const deletePromises = edition.pages.map(async (page: { url: string; filename: string }) => {
-        // Extract key from URL
-        const key = `editions/${edition.alias}/${page.filename}`;
-        try {
-          await deleteFromR2(key);
-        } catch (e) {
-          console.error(`Failed to delete R2 file: ${key}`, e);
+      const deletePromises = edition.pages.map(async (page: { filename: string; previewFilename?: string }) => {
+        const keys = [`editions/${edition.alias}/${page.filename}`];
+        if (page.previewFilename) {
+          keys.push(`editions/${edition.alias}/${page.previewFilename}`);
         }
+
+        await Promise.all(
+          keys.map(async (key) => {
+            try {
+              await deleteFromR2(key);
+            } catch (e) {
+              console.error(`Failed to delete R2 file: ${key}`, e);
+            }
+          })
+        );
       });
       await Promise.all(deletePromises);
     }

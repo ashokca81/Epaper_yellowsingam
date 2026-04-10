@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import clientPromise from '@/lib/mongodb';
 import { uploadToR2 } from '@/lib/r2';
 import path from 'path';
+import sharp from 'sharp';
 
 export async function GET(request: NextRequest) {
   try {
@@ -39,7 +40,15 @@ export async function GET(request: NextRequest) {
       .limit(limit)
       .toArray();
     
-    return NextResponse.json({ editions });
+    return NextResponse.json(
+      { editions },
+      {
+        headers: {
+          // Home page list does not change every second; let CDN cache briefly.
+          'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300',
+        },
+      }
+    );
   } catch (error) {
     console.error('Error fetching editions:', error);
     return NextResponse.json({ error: 'Failed to fetch editions' }, { status: 500 });
@@ -65,7 +74,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Process uploaded files and upload to Cloudflare R2
-    const files: { filename: string; url: string; pageNum: number }[] = [];
+    const files: {
+      filename: string;
+      url: string;
+      pageNum: number;
+      previewUrl?: string;
+      previewFilename?: string;
+    }[] = [];
     let fileIndex = 0;
     
     const folderName = alias || date;
@@ -75,22 +90,58 @@ export async function POST(request: NextRequest) {
       if (file) {
         const bytes = await file.arrayBuffer();
         const buffer = Buffer.from(bytes);
-        
-        const ext = path.extname(file.name) || '.jpg';
-        const filename = `page_${fileIndex + 1}${ext}`;
-        const key = `editions/${folderName}/${filename}`;
-        
-        // Get content type
-        const contentType = file.type || 'image/jpeg';
-        
-        // Upload to R2
-        const url = await uploadToR2(buffer, key, contentType);
-        
-        files.push({
-          filename,
-          url,
-          pageNum: fileIndex + 1,
-        });
+
+        if (file.type.startsWith('image/')) {
+          const pageBaseName = `page_${fileIndex + 1}`;
+          const filename = `${pageBaseName}.webp`;
+          const previewFilename = `${pageBaseName}_thumb.webp`;
+          const key = `editions/${folderName}/${filename}`;
+          const previewKey = `editions/${folderName}/${previewFilename}`;
+
+          // Normalize orientation + convert to webp for bandwidth savings.
+          const webpBuffer = await sharp(buffer)
+            .rotate()
+            .webp({ quality: 82, effort: 4 })
+            .toBuffer();
+
+          // Small preview for home grid cards (low-end devices).
+          const previewBuffer = await sharp(buffer)
+            .rotate()
+            .resize({
+              width: 420,
+              height: 630,
+              fit: 'inside',
+              withoutEnlargement: true,
+            })
+            .webp({ quality: 68, effort: 4 })
+            .toBuffer();
+
+          const [url, previewUrl] = await Promise.all([
+            uploadToR2(webpBuffer, key, 'image/webp'),
+            uploadToR2(previewBuffer, previewKey, 'image/webp'),
+          ]);
+
+          files.push({
+            filename,
+            url,
+            pageNum: fileIndex + 1,
+            previewUrl,
+            previewFilename,
+          });
+        } else {
+          // Non-image fallback (kept for compatibility with existing flows).
+          const ext = path.extname(file.name) || '.bin';
+          const filename = `page_${fileIndex + 1}${ext}`;
+          const key = `editions/${folderName}/${filename}`;
+          const contentType = file.type || 'application/octet-stream';
+          const url = await uploadToR2(buffer, key, contentType);
+
+          files.push({
+            filename,
+            url,
+            pageNum: fileIndex + 1,
+          });
+        }
       }
       fileIndex++;
     }

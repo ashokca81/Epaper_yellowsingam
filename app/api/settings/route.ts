@@ -39,7 +39,15 @@ export async function GET() {
       settings = newSettings as any;
     }
     
-    return NextResponse.json({ success: true, settings });
+    return NextResponse.json(
+      { success: true, settings },
+      {
+        headers: {
+          // Site settings are mostly static; cache for faster repeated loads.
+          'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=900',
+        },
+      }
+    );
   } catch (error) {
     console.error('Error fetching settings:', error);
     return NextResponse.json({ success: false, error: 'Failed to fetch settings' }, { status: 500 });

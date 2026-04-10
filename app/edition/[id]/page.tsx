@@ -25,6 +25,9 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
   const { id } = use(params);
   const [edition, setEdition] = useState<Edition | null>(null);
   const [loading, setLoading] = useState(true);
+  const [mainImageLoading, setMainImageLoading] = useState(true);
+  const [mainImageError, setMainImageError] = useState(false);
+  const [mainImageRetry, setMainImageRetry] = useState(0);
   const [currentPage, setCurrentPage] = useState(0);
   const [cropImageLoaded, setCropImageLoaded] = useState(false);
   const [isZoomOpen, setIsZoomOpen] = useState(false);
@@ -81,13 +84,23 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
   const getCurrentPageProxyUrl = () => {
     const raw = getCurrentPageUrl();
     if (!raw) return '';
-    return `/api/page-image?url=${encodeURIComponent(raw)}`;
+    // Direct CDN URL is faster than app-level proxy.
+    if (mainImageRetry <= 0) return raw;
+    const separator = raw.includes('?') ? '&' : '?';
+    return `${raw}${separator}r=${mainImageRetry}`;
   };
 
   const getProxyUrl = (rawUrl: string) => {
     if (!rawUrl) return '';
-    return `/api/page-image?url=${encodeURIComponent(rawUrl)}`;
+    return rawUrl;
   };
+
+  useEffect(() => {
+    // Show skeleton whenever user changes page / edition.
+    setMainImageLoading(true);
+    setMainImageError(false);
+    setMainImageRetry(0);
+  }, [currentPage, edition?._id]);
 
   // Format date
   const formatDate = (dateStr: string) => {
@@ -527,14 +540,49 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
           onTouchEnd={isCropOpen ? handleTouchEnd : handleSwipeEnd}
         >
           <Image
+            key={`mobile-main-${currentPage}-${mainImageRetry}`}
             src={getCurrentPageProxyUrl()}
             alt="Main Page View"
             fill
             className="object-contain"
             sizes="100vw"
             priority
-            unoptimized
+            onLoad={() => {
+              setMainImageLoading(false);
+              setMainImageError(false);
+            }}
+            onError={() => {
+              setMainImageLoading(false);
+              setMainImageError(true);
+            }}
           />
+          {mainImageLoading && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-gradient-to-b from-gray-900/70 to-black/70">
+              <div className="flex flex-col items-center gap-3">
+                <Loader2 className="w-8 h-8 animate-spin text-[#D4A800]" />
+                <div className="w-40 h-2 bg-white/20 rounded-full overflow-hidden">
+                  <div className="h-full w-1/2 bg-[#D4A800] animate-pulse" />
+                </div>
+              </div>
+            </div>
+          )}
+          {mainImageError && !mainImageLoading && (
+            <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 px-4">
+              <div className="text-center text-white">
+                <p className="text-sm mb-3">Image load కాలేదు. మళ్లీ ప్రయత్నించండి.</p>
+                <button
+                  onClick={() => {
+                    setMainImageError(false);
+                    setMainImageLoading(true);
+                    setMainImageRetry((prev) => prev + 1);
+                  }}
+                  className="px-4 py-2 bg-[#D4A800] text-black rounded-md font-semibold"
+                >
+                  Retry
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Swipe controls */}
           <button
@@ -720,7 +768,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                     fill
                     className="object-cover border border-gray-200"
                     sizes="(max-width: 768px) 120px, 200px"
-                    unoptimized
+                    loading="lazy"
                   />
                 </div>
               </button>
@@ -737,14 +785,48 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
           <div className="bg-gray-50">
             <div ref={containerRef} className="relative aspect-[2/3] w-full bg-white shadow-md border-b overflow-hidden touch-none">
               <Image
+                key={`desktop-main-${currentPage}-${mainImageRetry}`}
                 src={getCurrentPageProxyUrl()}
                 alt="Main Page View"
                 fill
                 className="object-contain"
                 referrerPolicy="no-referrer"
                 sizes="(max-width: 1024px) 100vw, 800px"
-                unoptimized
+                loading="eager"
+                onLoad={() => {
+                  setMainImageLoading(false);
+                  setMainImageError(false);
+                }}
+                onError={() => {
+                  setMainImageLoading(false);
+                  setMainImageError(true);
+                }}
               />
+              {mainImageLoading && (
+                <div className="absolute inset-0 z-20 flex items-center justify-center bg-gray-100/90">
+                  <div className="flex flex-col items-center gap-3">
+                    <Loader2 className="w-9 h-9 animate-spin text-[#D4A800]" />
+                    <p className="text-sm text-gray-600">Page loading...</p>
+                  </div>
+                </div>
+              )}
+              {mainImageError && !mainImageLoading && (
+                <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/90 px-4">
+                  <div className="text-center">
+                    <p className="text-sm text-gray-700 mb-3">Page image load కాలేదు.</p>
+                    <button
+                      onClick={() => {
+                        setMainImageError(false);
+                        setMainImageLoading(true);
+                        setMainImageRetry((prev) => prev + 1);
+                      }}
+                      className="px-4 py-2 bg-[#D4A800] text-black rounded-md font-semibold"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Crop Overlay */}
               {isCropOpen && (
@@ -864,9 +946,8 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                   className="object-contain pointer-events-none select-none"
                   referrerPolicy="no-referrer"
                   sizes="100vw"
-                  priority
                   draggable={false}
-                  unoptimized
+                  loading="lazy"
                 />
               </div>
             </div>
@@ -999,7 +1080,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                   referrerPolicy="no-referrer"
                   sizes="100vw"
                   onLoad={updateMiniMap}
-                  unoptimized
+                  loading="lazy"
                 />
               </div>
 
@@ -1034,7 +1115,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                           fill
                           className="object-contain pointer-events-none"
                           referrerPolicy="no-referrer"
-                          unoptimized
+                          loading="lazy"
                         />
                         {/* Viewport Indicator */}
                         <div

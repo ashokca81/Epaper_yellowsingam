@@ -31,6 +31,12 @@ const nextConfig: NextConfig = {
         port: '',
         pathname: '/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'cdn.yellowsingam.com',
+        port: '',
+        pathname: '/**',
+      },
     ],
   },
   output: 'standalone',

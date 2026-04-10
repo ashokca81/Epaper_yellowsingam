@@ -14,7 +14,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'invalid url' }, { status: 400 });
     }
 
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      cache: 'force-cache',
+    });
 
     if (!response.ok) {
       return NextResponse.json({ error: 'failed to fetch image' }, { status: response.status });
@@ -23,11 +25,25 @@ export async function GET(request: NextRequest) {
     const arrayBuffer = await response.arrayBuffer();
     const contentType = response.headers.get('Content-Type') || 'image/jpeg';
 
+    const upstreamEtag = response.headers.get('ETag');
+    const upstreamLastModified = response.headers.get('Last-Modified');
+    const upstreamContentLength = response.headers.get('Content-Length');
+
+    const headers: Record<string, string> = {
+      'Content-Type': contentType,
+      // Edition page images are immutable; allow long browser + CDN caching.
+      'Cache-Control': 'public, max-age=31536000, s-maxage=31536000, immutable',
+      'CDN-Cache-Control': 'public, max-age=31536000, immutable',
+      'Vercel-CDN-Cache-Control': 'public, max-age=31536000, immutable',
+    };
+
+    if (upstreamEtag) headers['ETag'] = upstreamEtag;
+    if (upstreamLastModified) headers['Last-Modified'] = upstreamLastModified;
+    if (upstreamContentLength) headers['Content-Length'] = upstreamContentLength;
+
     return new NextResponse(arrayBuffer as any, {
       headers: {
-        'Content-Type': contentType,
-        // Allow caching on CDN/browsers for a while since edition pages are immutable
-        'Cache-Control': 'public, max-age=3600',
+        ...headers,
       },
     });
   } catch (error) {
