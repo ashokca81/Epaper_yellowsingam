@@ -474,16 +474,14 @@ export default function PublishEdition() {
 
         for (let i = 0; i < files.length; i++) {
           const original = files[i];
-          const fullBlob = await compressFullWebpForUpload(original);
           const thumbBlob = await compressThumbWebp(original);
 
           let pageMeta: (typeof uploadedPages)[0];
           try {
-            pageMeta = await uploadEditionPageViaPresign(folderName, i + 1, fullBlob, thumbBlob);
+            pageMeta = await uploadEditionPageViaPresign(folderName, i + 1, original, thumbBlob);
           } catch (presignErr) {
             console.warn(`Presigned upload failed for page ${i + 1}, using fallback:`, presignErr);
-            const fullFile = new File([fullBlob], `page_${i + 1}.webp`, { type: 'image/webp' });
-            pageMeta = await uploadEditionPageViaApi(folderName, i + 1, fullFile);
+            pageMeta = await uploadEditionPageViaApi(folderName, i + 1, original);
           }
           uploadedPages.push(pageMeta);
 
