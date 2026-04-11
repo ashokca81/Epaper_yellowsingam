@@ -490,8 +490,8 @@ export default function EditionReader({ initialEdition, alias }: EditionReaderPr
       </div>
 
       {/* Desktop Toolbar */}
-      <div className="hidden md:flex sticky top-0 z-40 bg-white border-b shadow-sm p-1.5 flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-1 text-sm overflow-x-auto pb-1 sm:pb-0 w-full sm:w-auto">
+      <div className="hidden md:flex sticky top-0 z-40 bg-white border-b shadow-sm p-1.5 flex-nowrap items-center justify-between gap-2 overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-1 text-sm shrink-0">
           <div className="px-3 py-1.5 bg-gray-100 border font-bold text-[#D4A800] mr-2 rounded-sm shrink-0 uppercase tracking-tighter text-[10px]">
             {currentPage + 1} / {totalPages}
           </div>
