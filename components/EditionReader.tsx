@@ -38,14 +38,15 @@ export default function EditionReader({ initialEdition, alias }: EditionReaderPr
   const [currentClipId, setCurrentClipId] = useState('');
   const [cropImageLoaded, setCropImageLoaded] = useState(false);
   const [isZoomOpen, setIsZoomOpen] = useState(false);
-  const [isFitToScreen, setIsFitToScreen] = useState(false);
+  const [desktopZoomScale, setDesktopZoomScale] = useState(1);
+  const [isFitToScreen, setIsFitToScreen] = useState(true);
   const [isCropOpen, setIsCropOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [swipeStart, setSwipeStart] = useState<number | null>(null);
   const [generatedLink, setGeneratedLink] = useState('');
   const [crop, setCrop] = useState({ x: 20, y: 25, w: 60, h: 35 });
   const [miniMap, setMiniMap] = useState({ top: 0, left: 0, width: 100, height: 100 });
-  const [isMiniMapMinimized, setIsMiniMapMinimized] = useState(false);
+  const [isMiniMapMinimized, setIsMiniMapMinimized] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [showZoomControls, setShowZoomControls] = useState(true);
@@ -97,6 +98,30 @@ export default function EditionReader({ initialEdition, alias }: EditionReaderPr
     setMainImageError(false);
     setMainImageRetry(0);
   }, [currentPage, edition?._id]);
+
+  // Prevent body scroll when zoom is open
+  useEffect(() => {
+    if (isZoomOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isZoomOpen]);
+
+  const handleZoomIn = () => {
+    setIsFitToScreen(false);
+    setDesktopZoomScale(prev => Math.min(prev + 0.25, 3));
+    setImageTransform(prev => ({ ...prev, scale: Math.min(prev.scale + 0.25, 4) }));
+  };
+
+  const handleZoomOut = () => {
+    setIsFitToScreen(false);
+    setDesktopZoomScale(prev => Math.max(prev - 0.25, 0.5));
+    setImageTransform(prev => ({ ...prev, scale: Math.max(prev.scale - 0.25, 0.5) }));
+  };
 
   const setCurrentPage = (newVal: number | ((prev: number) => number)) => {
     const newIndex = typeof newVal === 'function' ? newVal(currentPage) : newVal;
@@ -440,7 +465,7 @@ export default function EditionReader({ initialEdition, alias }: EditionReaderPr
   };
 
   return (
-    <div className="flex flex-col md:gap-4">
+    <div className="flex flex-col">
       {/* Mobile Header */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-50 bg-[#2D2D2D] text-white safe-top">
         <div className="flex items-center justify-between px-4 py-3">
@@ -465,8 +490,11 @@ export default function EditionReader({ initialEdition, alias }: EditionReaderPr
       </div>
 
       {/* Desktop Toolbar */}
-      <div className="hidden md:flex sticky top-0 z-40 bg-white border shadow-sm p-2 flex-wrap items-center justify-between gap-4 rounded-sm">
+      <div className="hidden md:flex sticky top-0 z-40 bg-white border-b shadow-sm p-1.5 flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1 text-sm overflow-x-auto pb-1 sm:pb-0 w-full sm:w-auto">
+          <div className="px-3 py-1.5 bg-gray-100 border font-bold text-[#D4A800] mr-2 rounded-sm shrink-0 uppercase tracking-tighter text-[10px]">
+            {currentPage + 1} / {totalPages}
+          </div>
           <button onClick={() => !isCropOpen && setCurrentPage(0)} disabled={currentPage === 0 || isCropOpen} className="px-3 py-1.5 border hover:bg-gray-50 bg-white disabled:opacity-30">&laquo; First</button>
           {pages.map((p, i) => (
             <button key={p.pageNum} onClick={() => !isCropOpen && setCurrentPage(i)} onMouseEnter={() => !isCropOpen && handlePageHover(i)} className={`px-3 py-1.5 border ${i === currentPage ? 'bg-[#D4A800] text-white font-bold' : 'hover:bg-gray-50 bg-white'} ${isCropOpen ? 'opacity-50 cursor-not-allowed' : ''}`} disabled={isCropOpen}>{p.pageNum}</button>
@@ -480,7 +508,7 @@ export default function EditionReader({ initialEdition, alias }: EditionReaderPr
       </div>
 
       {/* Mobile Viewer */}
-      <div className="md:hidden fixed inset-0 pt-14 bg-black z-40 flex flex-col">
+      <div className="md:hidden fixed top-0 left-0 right-0 bottom-[70px] pt-14 bg-black z-40 flex flex-col">
         <div ref={mobileContainerRef} className={`relative w-full flex-1 min-h-0 ${!isCropOpen ? 'cursor-zoom-in' : ''} overflow-hidden`} style={{ perspective: '1200px' }} onClick={() => !isCropOpen && setIsZoomOpen(true)} onTouchStart={isCropOpen ? undefined : handleSwipeStart} onTouchMove={isCropOpen ? handleTouchMove : undefined} onTouchEnd={isCropOpen ? handleTouchEnd : handleSwipeEnd}>
           <AnimatePresence initial={false} custom={direction}>
             <motion.div key={currentPage} custom={direction} variants={pageVariants} initial="enter" animate="center" exit="exit" className="absolute inset-0 w-full h-full">
@@ -498,76 +526,594 @@ export default function EditionReader({ initialEdition, alias }: EditionReaderPr
                 <div className="absolute bg-black/60" style={{ top: `${crop.y}%`, left: 0, width: `${crop.x}%`, height: `${crop.h}%` }} />
                 <div className="absolute bg-black/60" style={{ top: `${crop.y}%`, right: 0, width: `${100 - crop.x - crop.w}%`, height: `${crop.h}%` }} />
               </div>
-              <div className={`absolute border-2 ${isDragging ? 'border-[#D4A800]' : 'border-white'}`} style={{ top: `${crop.y}%`, left: `${crop.x}%`, width: `${crop.w}%`, height: `${crop.h}%` }}>
-                <div className="absolute inset-4 cursor-move" onTouchStart={(e) => handleTouchStart(e, 'move')} />
-                <div className="absolute left-0 right-0 flex justify-center gap-3 transition-all duration-300" style={{ top: crop.y < 12 ? 'calc(100% + 12px)' : '-60px' }}>
-                  <button onClick={handleShareClick} className="bg-[#007bff] text-white px-5 py-2.5 rounded-xl flex items-center gap-2 font-bold text-sm"><Share2 size={18} /> Share</button>
-                  <button onClick={() => setIsCropOpen(false)} className="bg-[#1a1a1a] text-white px-5 py-2.5 rounded-xl flex items-center gap-2 font-bold text-sm border border-white/20"><X size={18} /> Cancel</button>
-                </div>
-                {['nw', 'ne', 'sw', 'se'].map(h => <div key={h} className={`absolute ${h.includes('n') ? '-top-4' : '-bottom-4'} ${h.includes('w') ? '-left-4' : '-right-4'} w-10 h-10 flex items-center justify-center`} onTouchStart={(e) => handleTouchStart(e, 'resize', h)}><div className="w-6 h-6 rounded-full bg-white" /></div>)}
-              </div>
+          <div className={`absolute border-2 ${isDragging ? 'border-[#D4A800]' : 'border-white'} transition-colors`} style={{ top: `${crop.y}%`, left: `${crop.x}%`, width: `${crop.w}%`, height: `${crop.h}%` }}>
+            <div className="absolute inset-4 cursor-move" onTouchStart={(e) => handleTouchStart(e, 'move')} />
+            
+            {/* Grid lines */}
+            <div className="absolute inset-0 pointer-events-none">
+              <div className="absolute top-1/3 left-0 right-0 h-[1px] bg-white/40" />
+              <div className="absolute top-2/3 left-0 right-0 h-[1px] bg-white/40" />
+              <div className="absolute left-1/3 top-0 bottom-0 w-[1px] bg-white/40" />
+              <div className="absolute left-2/3 top-0 bottom-0 w-[1px] bg-white/40" />
+            </div>
+
+            <div className="absolute left-0 right-0 flex justify-center gap-3 transition-all duration-300" style={{ top: crop.y < 12 ? 'calc(100% + 12px)' : '-60px' }}>
+              <button onClick={handleShareClick} className="bg-[#007bff] text-white px-5 py-2.5 rounded-xl flex items-center gap-2 font-bold text-sm"><Share2 size={18} /> Share</button>
+              <button onClick={() => setIsCropOpen(false)} className="bg-[#1a1a1a] text-white px-5 py-2.5 rounded-xl flex items-center gap-2 font-bold text-sm border border-white/20"><X size={18} /> Cancel</button>
+            </div>
+
+            {/* Corner Resize Handles - Large touch targets */}
+            <div className="absolute -top-4 -left-4 w-10 h-10 flex items-center justify-center" onTouchStart={(e) => handleTouchStart(e, 'resize', 'nw')}>
+              <div className={`w-6 h-6 rounded-full border-2 ${isDragging ? 'bg-[#D4A800]' : 'bg-white'} shadow-lg`} />
+            </div>
+            <div className="absolute -top-4 -right-4 w-10 h-10 flex items-center justify-center" onTouchStart={(e) => handleTouchStart(e, 'resize', 'ne')}>
+              <div className={`w-6 h-6 rounded-full border-2 ${isDragging ? 'bg-[#D4A800]' : 'bg-white'} shadow-lg`} />
+            </div>
+            <div className="absolute -bottom-4 -left-4 w-10 h-10 flex items-center justify-center" onTouchStart={(e) => handleTouchStart(e, 'resize', 'sw')}>
+              <div className={`w-6 h-6 rounded-full border-2 ${isDragging ? 'bg-[#D4A800]' : 'bg-white'} shadow-lg`} />
+            </div>
+            <div className="absolute -bottom-4 -right-4 w-10 h-10 flex items-center justify-center" onTouchStart={(e) => handleTouchStart(e, 'resize', 'se')}>
+              <div className={`w-6 h-6 rounded-full border-2 ${isDragging ? 'bg-[#D4A800]' : 'bg-white'} shadow-lg`} />
+            </div>
+
+            {/* Edge Resize Handles */}
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-12 h-6 flex items-center justify-center" onTouchStart={(e) => handleTouchStart(e, 'resize', 'n')}>
+              <div className={`w-8 h-2 rounded-full ${isDragging ? 'bg-[#D4A800]' : 'bg-white'} shadow-lg`} />
+            </div>
+            <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-12 h-6 flex items-center justify-center" onTouchStart={(e) => handleTouchStart(e, 'resize', 's')}>
+              <div className={`w-8 h-2 rounded-full ${isDragging ? 'bg-[#D4A800]' : 'bg-white'} shadow-lg`} />
+            </div>
+            <div className="absolute top-1/2 -left-3 -translate-y-1/2 w-6 h-12 flex items-center justify-center" onTouchStart={(e) => handleTouchStart(e, 'resize', 'w')}>
+              <div className={`w-2 h-8 rounded-full ${isDragging ? 'bg-[#D4A800]' : 'bg-white'} shadow-lg`} />
+            </div>
+            <div className="absolute top-1/2 -right-3 -translate-y-1/2 w-6 h-12 flex items-center justify-center" onTouchStart={(e) => handleTouchStart(e, 'resize', 'e')}>
+              <div className={`w-2 h-8 rounded-full ${isDragging ? 'bg-[#D4A800]' : 'bg-white'} shadow-lg`} />
+            </div>
+          </div>
             </div>
           )}
         </div>
-        {!isCropOpen && <div className="bg-[#1a1a1a] p-3 pb-[60px] overflow-x-auto flex gap-2">{pages.map((p, i) => <button key={p.pageNum} onClick={() => setCurrentPage(i)} className={`min-w-[42px] h-[42px] rounded-lg border-2 text-sm font-bold ${i === currentPage ? 'bg-[#D4A800] border-[#D4A800]' : 'bg-white/5 border-white/20 text-white'}`}>{p.pageNum}</button>)}</div>}
+        {!isCropOpen && (
+          <div className="relative z-50 bg-[#1a1a1a] p-3 pb-24 safe-bottom overflow-x-auto flex flex-col gap-2 border-t border-white/20 shadow-[0_-4px_20px_rgba(0,0,0,0.5)]">
+            <div className="flex justify-between items-center px-1">
+              <span className="text-white/40 text-[10px] uppercase font-bold tracking-widest">Select Page</span>
+              <span className="bg-[#D4A800] text-black text-[10px] px-2 py-0.5 rounded-full font-black">
+                {currentPage + 1} OF {totalPages}
+              </span>
+            </div>
+            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+              {pages.map((p, i) => (
+                <button 
+                  key={p.pageNum} 
+                  onClick={() => setCurrentPage(i)} 
+                  className={`min-w-[44px] h-[44px] shrink-0 rounded-lg border-2 text-sm font-bold transition-all active:scale-90 ${i === currentPage ? 'bg-[#D4A800] border-[#D4A800] text-black shadow-[0_0_15px_rgba(212,168,0,0.4)]' : 'bg-white/10 border-white/30 text-white'}`}
+                >
+                  {p.pageNum}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Desktop Viewer */}
       <div className="hidden md:flex gap-4">
-        <div className="w-48 shrink-0 bg-white border p-3 flex flex-col gap-4 overflow-y-auto max-h-screen">
+        {/* Left Sidebar (Thumbnails) - Sticky */}
+        <div className="w-48 shrink-0 bg-white border p-3 flex flex-col gap-3 sticky top-[52px] max-h-[calc(100vh-60px)] overflow-y-auto">
           {pages.map((p, i) => (
             <button key={p.pageNum} onClick={() => setCurrentPage(i)} className={`border p-2 group ${i === currentPage ? 'ring-2 ring-[#D4A800]' : ''}`}>
               <div className={`text-xs font-bold py-1 mb-2 ${i === currentPage ? 'bg-[#D4A800] text-white' : 'bg-gray-100'}`}>PAGE {p.pageNum}</div>
-              <div className="relative aspect-[2/3]"><Image src={getProxyUrl(p.previewUrl || p.url)} alt={`Page ${p.pageNum}`} fill className="object-cover" /></div>
+              <div className="relative aspect-[2/3] w-full bg-gray-100">
+                <Image 
+                  src={getProxyUrl(p.previewUrl || p.url, p.pageNum)} 
+                  alt={`Page ${p.pageNum}`} 
+                  fill 
+                  className="object-cover" 
+                  sizes="192px"
+                />
+              </div>
             </button>
           ))}
         </div>
-        <div className="flex-1 bg-white border overflow-hidden">
-          <div className="bg-[#2D2D2D] text-white px-4 py-2 text-sm">Yellow Singam Telugu Daily / {formatDate(edition.date)} / Page: {currentPage + 1}</div>
-          <div ref={containerRef} className={`relative aspect-[2/3] w-full bg-white overflow-hidden ${!isCropOpen ? 'cursor-zoom-in' : ''}`} style={{ perspective: '1200px' }} onClick={() => !isCropOpen && setIsZoomOpen(true)}>
-            <AnimatePresence initial={false} custom={direction}><motion.div key={currentPage} custom={direction} variants={pageVariants} initial="enter" animate="center" exit="exit" className="absolute inset-0"><Image key={`desktop-${currentPage}`} src={getCurrentPageProxyUrl()} alt="Main View" fill className="object-contain" onLoad={() => setMainImageLoading(false)} /></motion.div></AnimatePresence>
-            {isCropOpen && (
-              <div className="absolute inset-0 z-10 pointer-events-none">
-                <div className="absolute shadow-[0_0_0_9999px_rgba(0,0,0,0.6)] pointer-events-auto border-2 border-white" style={{ top: `${crop.y}%`, left: `${crop.x}%`, width: `${crop.w}%`, height: `${crop.h}%` }} onPointerDown={(e) => handlePointerDown(e, 'move')}>
-                  <div className="absolute left-0 right-0 flex justify-center gap-3" style={{ top: crop.y < 12 ? 'calc(100% + 15px)' : '-60px' }}>
-                    <button onClick={handleShareClick} onPointerDown={e => e.stopPropagation()} className="bg-[#007bff] text-white px-6 py-2.5 rounded-xl font-bold">Share</button>
-                    <button onClick={() => setIsCropOpen(false)} onPointerDown={e => e.stopPropagation()} className="bg-[#1a1a1a] text-white px-6 py-2.5 rounded-xl font-bold underline">Cancel</button>
+
+        {/* Right Column (Main Viewer) - Natural Height */}
+        <div className="flex-1 bg-white border border-gray-200 shadow-sm rounded-sm flex flex-col min-h-[calc(100vh-120px)]">
+          {/* Desktop Reader Header */}
+          <div className="bg-[#2D2D2D] text-white px-4 py-2.5 text-sm flex justify-between items-center shrink-0 border-b border-white/10">
+            <div className="flex items-center gap-3">
+              <span className="font-bold text-[#D4A800] tracking-wide uppercase">Yellow Singam Telugu Daily</span>
+              <span className="text-white/40">|</span>
+              <span className="font-medium">{formatDate(edition.date)}</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 bg-white/10 px-3 py-1 rounded-sm text-xs font-bold ring-1 ring-white/20">
+                PAGE {currentPage + 1} OF {totalPages}
+              </div>
+            </div>
+          </div>
+
+          <div 
+            ref={containerRef} 
+            className={`relative aspect-[2/3] w-full bg-white transition-all duration-300 ${!isCropOpen ? 'cursor-zoom-in' : ''}`}
+            style={{ perspective: '1200px' }}
+            onClick={() => !isCropOpen && setIsZoomOpen(true)}
+          >
+            {/* Loader */}
+            {mainImageLoading && (
+              <div className="absolute inset-0 z-[45] flex flex-col items-center justify-center bg-gray-50/80 backdrop-blur-[2px]">
+                <Loader2 className="w-12 h-12 animate-spin text-[#D4A800]" />
+                <span className="mt-4 text-xs font-bold text-gray-400 uppercase tracking-widest animate-pulse">Loading Page...</span>
+              </div>
+            )}
+
+              {/* Error State */}
+              {mainImageError && !mainImageLoading && (
+                <div className="absolute inset-0 z-[46] flex flex-col items-center justify-center bg-white p-6 text-center">
+                  <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mb-4">
+                    <ImageIcon className="text-red-400" size={32} />
+                  </div>
+                  <h3 className="text-lg font-bold text-gray-800 mb-2">Failed to load page</h3>
+                  <p className="text-gray-500 text-sm mb-6 max-w-xs">Something went wrong while fetching the high-quality image. Please try again.</p>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMainImageLoading(true);
+                      setMainImageError(false);
+                      setMainImageRetry(prev => prev + 1);
+                    }}
+                    className="flex items-center gap-2 bg-[#D4A800] text-white px-6 py-2.5 rounded-xl font-bold hover:bg-[#b89200] transition-colors shadow-lg active:scale-95"
+                  >
+                    <RotateCcw size={18} />
+                    Retry Now
+                  </button>
+                </div>
+              )}
+
+              <AnimatePresence initial={false} custom={direction}>
+                <motion.div
+                  key={currentPage}
+                  custom={direction}
+                  variants={pageVariants}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  className="absolute inset-0 w-full h-full"
+                >
+                  {getCurrentPageProxyUrl() && (
+                    <Image
+                      key={`desktop-main-${currentPage}-${mainImageRetry}`}
+                      src={getCurrentPageProxyUrl()}
+                      alt={`Yellow Singam Page ${currentPage + 1}`}
+                      fill
+                      className="object-contain"
+                      referrerPolicy="no-referrer"
+                      sizes="(max-width: 1024px) 100vw, (max-width: 1280px) 800px, 1200px"
+                      priority
+                      onLoad={() => {
+                        setMainImageLoading(false);
+                        setMainImageError(false);
+                      }}
+                      onError={() => {
+                        setMainImageLoading(false);
+                        setMainImageError(true);
+                      }}
+                    />
+                  )}
+                </motion.div>
+              </AnimatePresence>
+
+              {/* Crop Overlay */}
+              {isCropOpen && (
+                <div className="absolute inset-0 z-10 pointer-events-none">
+                  <div
+                    className="absolute shadow-[0_0_0_9999px_rgba(0,0,0,0.6)] pointer-events-auto border-2 border-white cursor-move"
+                    style={{
+                      top: `${crop.y}%`,
+                      left: `${crop.x}%`,
+                      width: `${crop.w}%`,
+                      height: `${crop.h}%`,
+                    }}
+                    onPointerDown={(e) => handlePointerDown(e, 'move')}
+                  >
+                    {/* Action buttons - Branded Labeled Style - Smart Positioning */}
+                    <div 
+                      className="absolute left-0 right-0 flex justify-center gap-3 pointer-events-auto transition-all duration-300"
+                      style={{ 
+                        top: crop.y < 12 ? 'calc(100% + 15px)' : '-60px',
+                        zIndex: 50
+                      }}
+                    >
+                      <button
+                        onClick={handleShareClick}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        className="bg-[#007bff] text-white px-6 py-2.5 rounded-xl flex items-center gap-2 shadow-[0_4px_20px_rgba(0,123,255,0.4)] hover:bg-[#0069d9] transition-all font-bold text-sm"
+                      >
+                        <Share2 size={18} />
+                        <span>Share</span>
+                      </button>
+                      <button
+                        onClick={() => setIsCropOpen(false)}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        className="bg-[#1a1a1a] text-white px-6 py-2.5 rounded-xl flex items-center gap-2 shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:bg-[#000000] transition-all font-bold text-sm border border-white/20"
+                      >
+                        <X size={18} />
+                        <span>Cancel</span>
+                      </button>
+                    </div>
+
+                    {/* Resize Handles - Blue dots with white border */}
+                    <div className="absolute top-0 left-0 w-6 h-6 bg-blue-600 border-2 border-white rounded-full shadow-md -translate-x-1/2 -translate-y-1/2 cursor-nwse-resize" onPointerDown={(e) => handlePointerDown(e, 'resize', 'nw')} />
+                    <div className="absolute top-0 right-0 w-6 h-6 bg-blue-600 border-2 border-white rounded-full shadow-md translate-x-1/2 -translate-y-1/2 cursor-nesw-resize" onPointerDown={(e) => handlePointerDown(e, 'resize', 'ne')} />
+                    <div className="absolute bottom-0 left-0 w-6 h-6 bg-blue-600 border-2 border-white rounded-full shadow-md -translate-x-1/2 translate-y-1/2 cursor-nesw-resize" onPointerDown={(e) => handlePointerDown(e, 'resize', 'sw')} />
+                    <div className="absolute bottom-0 right-0 w-6 h-6 bg-blue-600 border-2 border-white rounded-full shadow-md translate-x-1/2 translate-y-1/2 cursor-nwse-resize" onPointerDown={(e) => handlePointerDown(e, 'resize', 'se')} />
+
+                    <div className="absolute top-0 left-1/2 w-6 h-6 bg-blue-600 border-2 border-white rounded-full shadow-md -translate-x-1/2 -translate-y-1/2 cursor-ns-resize" onPointerDown={(e) => handlePointerDown(e, 'resize', 'n')} />
+                    <div className="absolute bottom-0 left-1/2 w-6 h-6 bg-blue-600 border-2 border-white rounded-full shadow-md -translate-x-1/2 translate-y-1/2 cursor-ns-resize" onPointerDown={(e) => handlePointerDown(e, 'resize', 's')} />
+                    <div className="absolute top-1/2 left-0 w-6 h-6 bg-blue-600 border-2 border-white rounded-full shadow-md -translate-x-1/2 -translate-y-1/2 cursor-ew-resize" onPointerDown={(e) => handlePointerDown(e, 'resize', 'w')} />
+                    <div className="absolute top-1/2 right-0 w-6 h-6 bg-blue-600 border-2 border-white rounded-full shadow-md translate-x-1/2 -translate-y-1/2 cursor-ew-resize" onPointerDown={(e) => handlePointerDown(e, 'resize', 'e')} />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+      {/* Share Clip Modal */}
+      {isShareModalOpen && (
+        <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-sm shadow-xl w-full max-w-2xl flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b">
+              <div className="flex items-center gap-2 text-xl font-bold text-gray-800">
+                <Share2 size={24} /> Share Clip
+              </div>
+              <button onClick={() => setIsShareModalOpen(false)} className="text-gray-500 hover:text-gray-800">
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-4 flex flex-col gap-4 overflow-y-auto max-h-[85vh] bg-gray-50">
+              {/* Social Buttons (Top as requested) */}
+              <div className="flex flex-wrap justify-center gap-2 mt-2">
+                <button
+                  onClick={() => {
+                    if (navigator.share) {
+                      navigator.share({
+                        title: edition?.name || 'Yellow Singam ePaper Clip',
+                        text: 'Check out this ePaper clip',
+                        url: generatedLink
+                      }).catch(err => console.log('Share failed:', err));
+                    }
+                  }}
+                  className="bg-[#0088ff] text-white p-3 rounded-sm hover:bg-blue-600 transition-colors"
+                  title="Share"
+                >
+                  <Share2 size={24} />
+                </button>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(generatedLink);
+                    alert('Link copied to clipboard!');
+                  }}
+                  className="bg-[#0088ff] text-white p-3 rounded-sm hover:bg-blue-600 transition-colors"
+                  title="Copy Link"
+                >
+                  <Copy size={24} />
+                </button>
+                <button
+                  onClick={() => window.open(generatedLink, '_blank')}
+                  className="bg-[#0088ff] text-white p-3 rounded-sm hover:bg-blue-600 transition-colors"
+                  title="Open Link"
+                >
+                  <ExternalLink size={24} />
+                </button>
+                <button
+                  onClick={() => window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(generatedLink)}`, '_blank')}
+                  className="bg-[#1877F2] text-white p-3 rounded-sm hover:bg-blue-700 transition-colors"
+                  title="Facebook"
+                >
+                  <Facebook size={24} />
+                </button>
+                <button
+                  onClick={() => window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(generatedLink)}&text=${encodeURIComponent(edition?.name || 'ePaper Clip')}`, '_blank')}
+                  className="bg-black text-white p-3 rounded-sm hover:bg-gray-800 transition-colors flex items-center justify-center w-[48px] h-[48px]"
+                  title="X (Twitter)"
+                >
+                  <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4l16 16M4 20L20 4" /></svg>
+                </button>
+                <button
+                  onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(edition?.name + ' ' + generatedLink)}`, '_blank')}
+                  className="bg-[#25D366] text-white p-3 rounded-sm hover:bg-green-600 transition-colors"
+                  title="WhatsApp"
+                >
+                  <MessageCircle size={24} />
+                </button>
+                <button
+                  onClick={() => window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(generatedLink)}`, '_blank')}
+                  className="bg-[#0A66C2] text-white p-3 rounded-sm hover:bg-blue-800 transition-colors"
+                  title="LinkedIn"
+                >
+                  <Linkedin size={24} />
+                </button>
+                <button
+                  onClick={() => window.open(`https://t.me/share/url?url=${encodeURIComponent(generatedLink)}&text=${encodeURIComponent(edition?.name || 'ePaper Clip')}`, '_blank')}
+                  className="bg-[#229ED9] text-white p-3 rounded-sm hover:bg-blue-500 transition-colors"
+                  title="Telegram"
+                >
+                  <Send size={24} />
+                </button>
+                <button
+                  onClick={() => window.location.href = `mailto:?subject=${encodeURIComponent(edition?.name || 'ePaper Clip')}&body=${encodeURIComponent(generatedLink)}`}
+                  className="bg-gray-600 text-white p-3 rounded-sm hover:bg-gray-700 transition-colors"
+                  title="Email"
+                >
+                  <Mail size={24} />
+                </button>
+              </div>
+
+              {/* Branded Preview Card */}
+              <div className="flex justify-center p-2">
+                <div 
+                  className="bg-white border-[8px] border-[#D4A800] shadow-xl w-full max-w-sm flex flex-col overflow-hidden"
+                >
+                  {/* Card Header - Banner Style with Text */}
+                  <div className="bg-white flex flex-col border-b border-gray-100">
+                    <div className="h-1 bg-[#2D3A2D] w-full" />
+                    <div className="p-3 flex items-center justify-center bg-white gap-2">
+                      <img src="/logo.png" alt="Logo" className="h-10 w-10 object-contain flex-shrink-0" />
+                      <div className="flex flex-col items-center">
+                        <span className="text-xl font-black text-[#D4A800] leading-none uppercase">
+                          Yellow Singam
+                        </span>
+                        <span className="text-[8px] text-gray-500 font-medium tracking-[0.2em] uppercase italic">
+                          hunting for truth
+                        </span>
+                      </div>
+                    </div>
+                    <div className="h-[0.5px] bg-black/10 w-full" />
+                  </div>
+
+                  {/* Image Area */}
+                  <div className="relative h-[250px] bg-white flex items-center justify-center p-2">
+                    {getCurrentPageUrl() ? (
+                      <div className="relative w-full h-full overflow-hidden">
+                        <img
+                          src={getCurrentPageUrl()}
+                          alt="Cropped Preview"
+                          className="absolute max-w-none"
+                          style={{
+                            width: `${(100 / crop.w) * 100}%`,
+                            height: `${(100 / crop.h) * 100}%`,
+                            left: `-${(crop.x / crop.w) * 100}%`,
+                            top: `-${(crop.y / crop.h) * 100}%`,
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div className="text-gray-300 flex flex-col items-center">
+                        <ImageIcon size={48} />
+                        <span className="text-xs">No preview</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Card Footer */}
+                  <div className="bg-[#D4A800] p-2 text-center">
+                    <div className="text-[#2D2D2D] font-bold text-[10px] uppercase tracking-tighter">
+                      epaper.yellowsingam.com | {formatDate(edition?.date)} | P: {currentPage + 1} | CID: {currentClipId}
+                    </div>
+                    <div className="text-[#2D2D2D]/90 text-[8px] font-medium mt-0.5">
+                      For more details, visit our ePaper
+                    </div>
                   </div>
                 </div>
               </div>
-            )}
-          </div>
-        </div>
-      </div>
 
-      {/* Share Modal */}
-      {isShareModalOpen && (
-        <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-xl p-6">
-            <div className="flex justify-between items-center mb-4"><h3 className="text-xl font-bold">Share Clip</h3><button onClick={() => setIsShareModalOpen(false)}><X size={24}/></button></div>
-            <div className="bg-gray-100 p-4 rounded-lg mb-4 text-center">
-              <div className="bg-[#D4A800] text-black font-bold text-sm p-1">CID: {currentClipId}</div>
-              <p className="text-sm mt-2 truncate">{generatedLink}</p>
-            </div>
-            <div className="flex flex-wrap gap-4 justify-center">
-              <button onClick={() => { navigator.clipboard.writeText(generatedLink); alert('Copied!'); }} className="bg-[#D4A800] px-4 py-2 rounded font-bold">Copy Link</button>
-              <button onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(generatedLink)}`)} className="bg-[#25D366] text-white px-4 py-2 rounded font-bold">WhatsApp</button>
+              {/* Link Input */}
+              <div className="flex justify-center mt-2 px-2">
+                <div className="relative w-full max-w-lg">
+                  <input
+                    type="text"
+                    readOnly
+                    value={generatedLink}
+                    className="w-full border border-gray-300 p-3 pr-12 rounded-xl text-center text-sm font-medium bg-white shadow-inner"
+                  />
+                  <Copy 
+                    size={18} 
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 cursor-pointer hover:text-[#D4A800]"
+                    onClick={() => {
+                      navigator.clipboard.writeText(generatedLink);
+                      alert('Link copied!');
+                    }}
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Zoom Overlay (Minimal Version for brevity) */}
-      {isZoomOpen && (
-        <div className="fixed inset-0 z-[100] bg-black flex flex-col" onTouchStart={handleZoomTouchStart} onTouchMove={handleZoomTouchMove} onTouchEnd={handleZoomTouchEnd}>
-          <div className="flex justify-between items-center p-4 text-white"><span>Page {currentPage + 1}</span><button onClick={() => setIsZoomOpen(false)}><X size={32}/></button></div>
-          <div className="flex-1 relative overflow-hidden">
-             <div className="w-full h-full relative" style={{ transform: `translate(${imageTransform.x}px, ${imageTransform.y}px) scale(${imageTransform.scale})`, transformOrigin: 'center center' }}>
-               <Image src={getCurrentPageProxyUrl()} alt="Zoomed" fill className="object-contain" />
-             </div>
-          </div>
-        </div>
-      )}
+      {/* Zoom Overlay - Full Screen Detailed Version */}
+      <AnimatePresence>
+        {isZoomOpen && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="fixed inset-0 z-[100] bg-black flex flex-col overflow-hidden"
+          >
+            {/* Zoom Header */}
+            <div className="flex items-center justify-between p-4 bg-black/50 backdrop-blur-md text-white border-b border-white/10 shrink-0">
+              <div className="flex items-center gap-4">
+                <button onClick={() => setIsZoomOpen(false)} className="p-2 hover:bg-white/10 rounded-full">
+                  <ChevronLeft size={24} />
+                </button>
+                <div className="flex flex-col">
+                  <span className="font-bold text-sm">Page {currentPage + 1} of {totalPages}</span>
+                  <span className="text-[10px] text-[#D4A800] uppercase font-bold tracking-widest">{formatDate(edition.date)}</span>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setIsMiniMapMinimized(!isMiniMapMinimized)} 
+                  className={`p-2 rounded-full transition-colors ${isMiniMapMinimized ? 'text-white/40' : 'text-[#D4A800] bg-[#D4A800]/10'}`}
+                  title="Toggle Mini-map"
+                >
+                  <Map size={20} />
+                </button>
+                <button onClick={() => setIsZoomOpen(false)} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors">
+                  <X size={24} />
+                </button>
+              </div>
+            </div>
+
+          <div className="flex-1 relative overflow-hidden bg-black">
+              {/* Desktop Zoom Scrollable Area */}
+              <div 
+                ref={zoomContainerRef}
+                onScroll={updateMiniMap}
+                className={`hidden md:block w-full h-full overflow-auto no-scrollbar scroll-smooth bg-black/40`}
+              >
+                <div 
+                  className={`relative mx-auto transition-all duration-300 ${isFitToScreen ? 'w-full h-auto px-10' : 'mb-20 mt-10 shadow-2xl'}`}
+                  style={{ width: isFitToScreen ? '100%' : `${1200 * desktopZoomScale}px` }}
+                  onClick={handleZoomImageClick}
+                >
+                  <div className={`relative ${isFitToScreen ? 'h-full aspect-[2/3]' : 'w-full aspect-[2/3]'}`}>
+                    <Image
+                      src={getCurrentPageProxyUrl()}
+                      alt="Zoomed View"
+                      fill
+                      className="object-contain"
+                      priority
+                      unoptimized
+                      quality={100}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Mobile Zoom Interactive Area */}
+              <div 
+                ref={mobileZoomRef}
+                className="md:hidden w-full h-full relative overflow-hidden"
+                onTouchStart={handleZoomTouchStart}
+                onTouchMove={handleZoomTouchMove}
+                onTouchEnd={handleZoomTouchEnd}
+              >
+                <div 
+                  className="relative w-full h-full transition-transform duration-75"
+                  style={{ 
+                    transform: `translate(${imageTransform.x}px, ${imageTransform.y}px) scale(${imageTransform.scale})`,
+                    transformOrigin: 'center center'
+                  }}
+                >
+                  <Image
+                    src={getCurrentPageProxyUrl()}
+                    alt="Mobile Zoomed"
+                    fill
+                    className="object-contain object-top"
+                    priority
+                    unoptimized
+                  />
+                </div>
+              </div>
+
+              {/* Floating Mini-Map */}
+              <AnimatePresence>
+                {!isMiniMapMinimized && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 20 }}
+                    className="absolute bottom-24 right-6 w-32 md:w-40 aspect-[2/3] bg-black/80 border border-white/20 rounded-lg overflow-hidden hidden md:block z-50 shadow-2xl backdrop-blur-sm"
+                  >
+                    <div className="relative w-full h-full opacity-50">
+                      <Image src={getCurrentPageProxyUrl()} alt="Mini" fill className="object-cover" />
+                    </div>
+                    {/* Viewport Indicator */}
+                    <div 
+                      className="absolute border-2 border-[#D4A800] bg-[#D4A800]/10 cursor-move"
+                      style={{
+                        top: `${miniMap.top}%`,
+                        left: `${miniMap.left}%`,
+                        width: `${miniMap.width}%`,
+                        height: `${miniMap.height}%`,
+                      }}
+                      onMouseDown={(e) => {
+                        const rect = e.currentTarget.parentElement?.getBoundingClientRect();
+                        if (!rect) return;
+                        const move = (moveEvent: MouseEvent) => {
+                          const x = (moveEvent.clientX - rect.left) / rect.width;
+                          const y = (moveEvent.clientY - rect.top) / rect.height;
+                          handleMiniMapClick({ clientX: moveEvent.clientX, clientY: moveEvent.clientY, currentTarget: e.currentTarget.parentElement } as any);
+                        };
+                        const up = () => {
+                          window.removeEventListener('mousemove', move);
+                          window.removeEventListener('mouseup', up);
+                        };
+                        window.addEventListener('mousemove', move);
+                        window.addEventListener('mouseup', up);
+                      }}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Bottom Navigation & Controls */}
+              <div className="absolute bottom-0 left-0 right-0 p-6 flex flex-col items-center gap-4 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none">
+                <div className="flex items-center gap-3 pointer-events-auto">
+                  <button 
+                    onClick={() => currentPage > 0 && setCurrentPage(currentPage - 1)}
+                    disabled={currentPage === 0}
+                    className="p-3 bg-white/10 hover:bg-white/20 disabled:opacity-20 rounded-full text-white backdrop-blur-md transition-all active:scale-90"
+                  >
+                    <ChevronLeft size={24} />
+                  </button>
+                  
+                  <div className="flex items-center gap-1 bg-black/60 rounded-full p-1.5 border border-white/10 backdrop-blur-xl">
+                    <button 
+                      onClick={() => setIsFitToScreen(!isFitToScreen)} 
+                      className={`p-2.5 rounded-full transition-all ${isFitToScreen ? 'bg-[#D4A800] text-black shadow-[0_0_20px_rgba(212,168,0,0.5)]' : 'text-white hover:bg-white/10'}`}
+                    >
+                      {isFitToScreen ? <Maximize size={20} /> : <Minimize2 size={20} />}
+                    </button>
+                    <div className="w-[1px] h-4 bg-white/20 mx-1" />
+                    <button 
+                      onClick={handleZoomOut}
+                      className="p-2.5 text-white hover:bg-white/10 rounded-full flex items-center justify-center font-bold text-xl w-10 h-10"
+                      title="Zoom Out"
+                    >
+                      <span className="leading-none">−</span>
+                    </button>
+                    <button 
+                      onClick={handleZoomIn}
+                      className="p-2.5 text-white hover:bg-white/10 rounded-full flex items-center justify-center font-bold text-xl w-10 h-10"
+                      title="Zoom In"
+                    >
+                      <span className="leading-none">+</span>
+                    </button>
+                  </div>
+
+                  <button 
+                    onClick={() => currentPage < totalPages - 1 && setCurrentPage(currentPage + 1)}
+                    disabled={currentPage === totalPages - 1}
+                    className="p-3 bg-white/10 hover:bg-white/20 disabled:opacity-20 rounded-full text-white backdrop-blur-md transition-all active:scale-90"
+                  >
+                    <ChevronRight size={24} />
+                  </button>
+                </div>
+                
+                <div className="text-[10px] text-white/40 uppercase tracking-[0.3em] font-bold">
+                  Scroll or Click to zoom
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
