@@ -10,6 +10,7 @@ interface EditionPage {
   filename: string;
   url: string;
   pageNum: number;
+  previewUrl?: string;
 }
 
 interface Edition {
@@ -28,6 +29,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
   const [mainImageLoading, setMainImageLoading] = useState(true);
   const [mainImageError, setMainImageError] = useState(false);
   const [mainImageRetry, setMainImageRetry] = useState(0);
+  const [thumbRetries, setThumbRetries] = useState<Record<number, number>>({});
   const [currentPage, setCurrentPage] = useState(0);
   const [cropImageLoaded, setCropImageLoaded] = useState(false);
   const [isZoomOpen, setIsZoomOpen] = useState(false);
@@ -90,9 +92,12 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
     return `${raw}${separator}r=${mainImageRetry}`;
   };
 
-  const getProxyUrl = (rawUrl: string) => {
+  const getProxyUrl = (rawUrl: string, pageNum?: number) => {
     if (!rawUrl) return '';
-    return rawUrl;
+    const retryCount = pageNum !== undefined ? (thumbRetries[pageNum] || 0) : 0;
+    if (retryCount === 0) return rawUrl;
+    const separator = rawUrl.includes('?') ? '&' : '?';
+    return `${rawUrl}${separator}r=${retryCount}`;
   };
 
   useEffect(() => {
@@ -101,11 +106,48 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
     setMainImageError(false);
     setMainImageRetry(0);
   }, [currentPage, edition?._id]);
+  
+  const pages = edition?.pages || [];
+  const totalPages = pages.length;
+
+  // Preloading Logic
+  const preloadImage = (url: string) => {
+    if (!url || typeof window === 'undefined') return;
+    const img = new window.Image();
+    img.src = url;
+  };
+
+  useEffect(() => {
+    if (!edition || !edition.pages) return;
+    
+    // Preload next 2 pages and previous 1 page
+    const pagesToPreload = [currentPage + 1, currentPage + 2, currentPage - 1];
+    pagesToPreload.forEach(idx => {
+      if (idx >= 0 && idx < totalPages) {
+        preloadImage(getProxyUrl(pages[idx].url, pages[idx].pageNum));
+      }
+    });
+  }, [currentPage, edition, totalPages]);
+
+  const handlePageHover = (idx: number) => {
+    if (idx >= 0 && idx < totalPages) {
+      preloadImage(getProxyUrl(pages[idx].url, pages[idx].pageNum));
+    }
+  };
 
   // Format date
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+    try {
+      const date = new Date(dateStr);
+      return new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      }).format(date);
+    } catch (e) {
+      return dateStr;
+    }
   };
 
   // Mobile Touch Handlers for Crop
@@ -354,6 +396,30 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
     });
   };
 
+  const handleZoomImageClick = (e: React.MouseEvent) => {
+    if (isFitToScreen) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const xPercent = (e.clientX - rect.left) / rect.width;
+      const yPercent = (e.clientY - rect.top) / rect.height;
+
+      setIsFitToScreen(false);
+
+      // Timeout to wait for the container to update layout after setIsFitToScreen(false)
+      setTimeout(() => {
+        if (zoomContainerRef.current) {
+          const { scrollWidth, scrollHeight, clientWidth, clientHeight } = zoomContainerRef.current;
+          zoomContainerRef.current.scrollTo({
+            left: (xPercent * scrollWidth) - (clientWidth / 2),
+            top: (yPercent * scrollHeight) - (clientHeight / 2),
+            behavior: 'smooth'
+          });
+        }
+      }, 50);
+    } else {
+      setIsFitToScreen(true);
+    }
+  };
+
   const handleShareClick = (e: React.MouseEvent | React.PointerEvent) => {
     e.stopPropagation();
     const currentPageUrl = getCurrentPageUrl();
@@ -461,8 +527,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
     );
   }
 
-  const pages = edition.pages || [];
-  const totalPages = pages.length;
+  // Pages are now declared higher up for preloading logic
 
   return (
     <div className="flex flex-col md:gap-4">
@@ -503,6 +568,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
             <button
               key={page.pageNum}
               onClick={() => setCurrentPage(index)}
+              onMouseEnter={() => handlePageHover(index)}
               className={`px-3 py-1.5 border whitespace-nowrap ${index === currentPage
                 ? 'bg-[#D4A800] text-white font-bold'
                 : 'hover:bg-gray-50 bg-white'
@@ -534,7 +600,8 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
         {/* Main Image - Full width touch area */}
         <div
           ref={mobileContainerRef}
-          className="relative w-full flex-1 min-h-0"
+          className={`relative w-full flex-1 min-h-0 ${!isCropOpen ? 'cursor-zoom-in' : ''}`}
+          onClick={() => !isCropOpen && setIsZoomOpen(true)}
           onTouchStart={isCropOpen ? undefined : handleSwipeStart}
           onTouchMove={isCropOpen ? handleTouchMove : undefined}
           onTouchEnd={isCropOpen ? handleTouchEnd : handleSwipeEnd}
@@ -547,6 +614,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
             className="object-contain"
             sizes="100vw"
             priority
+            referrerPolicy="no-referrer"
             onLoad={() => {
               setMainImageLoading(false);
               setMainImageError(false);
@@ -557,11 +625,17 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
             }}
           />
           {mainImageLoading && (
-            <div className="absolute inset-0 z-20 flex items-center justify-center bg-gradient-to-b from-gray-900/70 to-black/70">
-              <div className="flex flex-col items-center gap-3">
-                <Loader2 className="w-8 h-8 animate-spin text-[#D4A800]" />
-                <div className="w-40 h-2 bg-white/20 rounded-full overflow-hidden">
-                  <div className="h-full w-1/2 bg-[#D4A800] animate-pulse" />
+            <div className="fixed inset-0 z-[100] pointer-events-none flex items-center justify-center px-6">
+              <div className="flex flex-col items-center gap-4 bg-black/60 backdrop-blur-xl p-8 rounded-[2rem] border border-white/20 shadow-2xl pointer-events-auto animate-in fade-in zoom-in duration-300">
+                <div className="relative">
+                  <Loader2 className="w-10 h-10 animate-spin text-[#D4A800]" />
+                  <div className="absolute inset-0 blur-sm bg-[#D4A800]/20 animate-pulse rounded-full" />
+                </div>
+                <div className="flex flex-col items-center gap-2">
+                  <span className="text-white font-bold text-sm tracking-widest uppercase">Loading Page</span>
+                  <div className="w-20 h-1 bg-white/20 rounded-full overflow-hidden">
+                    <div className="h-full w-full bg-[#D4A800] animate-progress-loading" />
+                  </div>
                 </div>
               </div>
             </div>
@@ -721,6 +795,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                 <button
                   key={page.pageNum}
                   onClick={() => setCurrentPage(index)}
+                  onMouseEnter={() => handlePageHover(index)}
                   className={`min-w-[42px] h-[42px] flex items-center justify-center rounded-lg border-2 text-sm font-bold transition-all active:scale-90 shrink-0 ${index === currentPage
                     ? 'bg-[#D4A800] border-[#D4A800] text-white shadow-[0_0_10px_rgba(212,168,0,0.3)]'
                     : 'bg-white/5 border-white/20 text-white/90 font-medium'
@@ -754,6 +829,7 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
               <button
                 key={page.pageNum}
                 onClick={() => setCurrentPage(index)}
+                onMouseEnter={() => handlePageHover(index)}
                 className={`border bg-white p-2 shadow-sm min-w-[120px] md:min-w-0 hover:border-[#D4A800] transition-colors group shrink-0 ${index === currentPage ? 'border-[#D4A800] ring-2 ring-[#D4A800]/20' : ''
                   }`}
               >
@@ -763,12 +839,22 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                 </div>
                 <div className="relative aspect-[2/3] w-full bg-gray-100">
                   <Image
-                    src={getProxyUrl(page.url)}
+                    src={getProxyUrl(page.previewUrl || page.url, page.pageNum)}
                     alt={`Page ${page.pageNum}`}
                     fill
                     className="object-cover border border-gray-200"
                     sizes="(max-width: 768px) 120px, 200px"
                     loading="lazy"
+                    referrerPolicy="no-referrer"
+                    onError={() => {
+                      const currentRetry = thumbRetries[page.pageNum] || 0;
+                      if (currentRetry < 3) { // Try up to 3 times
+                        setThumbRetries(prev => ({
+                          ...prev,
+                          [page.pageNum]: currentRetry + 1
+                        }));
+                      }
+                    }}
                   />
                 </div>
               </button>
@@ -783,7 +869,11 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
             <span className="text-[#D4A800]">/ {formatDate(edition.date)} / Page: {currentPage + 1}</span>
           </div>
           <div className="bg-gray-50">
-            <div ref={containerRef} className="relative aspect-[2/3] w-full bg-white shadow-md border-b overflow-hidden touch-none">
+            <div 
+              ref={containerRef} 
+              className="relative aspect-[2/3] w-full bg-white shadow-md border-b overflow-hidden touch-none cursor-zoom-in"
+              onClick={() => setIsZoomOpen(true)}
+            >
               <Image
                 key={`desktop-main-${currentPage}-${mainImageRetry}`}
                 src={getCurrentPageProxyUrl()}
@@ -803,10 +893,18 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                 }}
               />
               {mainImageLoading && (
-                <div className="absolute inset-0 z-20 flex items-center justify-center bg-gray-100/90">
-                  <div className="flex flex-col items-center gap-3">
-                    <Loader2 className="w-9 h-9 animate-spin text-[#D4A800]" />
-                    <p className="text-sm text-gray-600">Page loading...</p>
+                <div className="fixed inset-0 z-[100] pointer-events-none flex items-center justify-center">
+                  <div className="flex flex-col items-center gap-4 bg-white/90 backdrop-blur-xl p-10 rounded-3xl border border-gray-100 shadow-[0_20px_50px_rgba(0,0,0,0.1)] pointer-events-auto animate-in fade-in zoom-in duration-300">
+                    <div className="relative">
+                      <Loader2 className="w-12 h-12 animate-spin text-[#D4A800]" />
+                      <div className="absolute inset-0 blur-md bg-[#D4A800]/10 animate-pulse rounded-full" />
+                    </div>
+                    <div className="flex flex-col items-center gap-2">
+                      <span className="text-gray-900 font-bold text-base tracking-widest uppercase">Loading Edition</span>
+                      <div className="w-24 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-full w-full bg-[#D4A800] animate-progress-loading" />
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1076,10 +1174,11 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                   alt="Zoomed Page View"
                   width={1200}
                   height={1800}
-                  className={isFitToScreen ? 'object-contain w-full h-full' : 'w-full h-auto'}
+                  className={`${isFitToScreen ? 'object-contain w-full h-full cursor-zoom-in' : 'w-full h-auto cursor-zoom-out'}`}
                   referrerPolicy="no-referrer"
                   sizes="100vw"
                   onLoad={updateMiniMap}
+                  onClick={handleZoomImageClick}
                   loading="lazy"
                 />
               </div>

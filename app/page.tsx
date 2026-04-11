@@ -109,8 +109,17 @@ export default async function Home() {
   const { editions, settings } = await getHomeData();
 
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+    try {
+      const date = new Date(dateStr);
+      return new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      }).format(date);
+    } catch (e) {
+      return dateStr;
+    }
   };
 
   const isNew = (dateStr: string) => {
@@ -210,6 +219,7 @@ const getProxyUrl = (rawUrl: string) => {
                           className="object-cover group-hover:scale-105 transition-transform duration-300"
                           sizes="(max-width: 768px) 50vw, (max-width: 1200px) 33vw, 25vw"
                           priority={index < 2}
+                          referrerPolicy="no-referrer"
                           loading={index < 2 ? 'eager' : 'lazy'}
                         />
                       ) : (

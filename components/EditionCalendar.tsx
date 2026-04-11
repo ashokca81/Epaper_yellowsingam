@@ -107,10 +107,17 @@ export default function EditionCalendar({ className = "", onDateSelect }: Editio
         // Map editions to available dates
         const editionsMap = data.editions
           .filter((edition: Edition) => edition.date)
-          .map((edition: Edition) => ({
-            date: new Date(edition.date).getDate(),
-            edition
-          }));
+          .map((edition: Edition) => {
+            const date = new Date(edition.date);
+            const istDay = parseInt(new Intl.DateTimeFormat('en-IN', {
+              timeZone: 'Asia/Kolkata',
+              day: 'numeric'
+            }).format(date));
+            return {
+              date: istDay,
+              edition
+            };
+          });
         
         console.log('Mapped editions:', editionsMap); // Debug
         setAvailableEditions(editionsMap);
@@ -129,10 +136,17 @@ export default function EditionCalendar({ className = "", onDateSelect }: Editio
               return editionDate.getMonth() === currentMonth && 
                      editionDate.getFullYear() === currentYear;
             })
-            .map((edition: Edition) => ({
-              date: new Date(edition.date).getDate(),
-              edition
-            }));
+            .map((edition: Edition) => {
+              const date = new Date(edition.date);
+              const istDay = parseInt(new Intl.DateTimeFormat('en-IN', {
+                timeZone: 'Asia/Kolkata',
+                day: 'numeric'
+              }).format(date));
+              return {
+                date: istDay,
+                edition
+              };
+            });
           
           console.log('Fallback editions:', currentMonthEditions); // Debug
           setAvailableEditions(currentMonthEditions);
@@ -195,12 +209,18 @@ export default function EditionCalendar({ className = "", onDateSelect }: Editio
   };
 
   // Format date for display
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('en-GB', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
-    });
+  const formatDate = (dateStr: string) => {
+    try {
+      const date = new Date(dateStr);
+      return new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      }).format(date);
+    } catch (e) {
+      return dateStr;
+    }
   };
 
   // Fetch editions when month changes
