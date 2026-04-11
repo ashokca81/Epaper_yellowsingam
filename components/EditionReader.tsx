@@ -1004,9 +1004,9 @@ export default function EditionReader({ initialEdition, alias }: EditionReaderPr
                 onTouchEnd={handleZoomTouchEnd}
               >
                 <div 
-                  className="relative w-full h-full transition-transform duration-75"
+                  className="relative w-full h-full transition-transform duration-0 will-change-transform"
                   style={{ 
-                    transform: `translate(${imageTransform.x}px, ${imageTransform.y}px) scale(${imageTransform.scale})`,
+                    transform: `translate3d(${imageTransform.x}px, ${imageTransform.y}px, 0) scale(${imageTransform.scale})`,
                     transformOrigin: 'center center'
                   }}
                 >
@@ -1063,22 +1063,22 @@ export default function EditionReader({ initialEdition, alias }: EditionReaderPr
               </AnimatePresence>
 
               {/* Bottom Navigation & Controls */}
-              <div className="absolute bottom-0 left-0 right-0 p-6 flex flex-col items-center gap-4 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none">
-                <div className="flex items-center gap-3 pointer-events-auto">
+              <div className="absolute bottom-0 left-0 right-0 p-4 flex flex-col items-center gap-4 bg-gradient-to-t from-black/60 to-transparent pointer-events-none">
+                <div className="flex items-center gap-2 pointer-events-auto bg-black/40 backdrop-blur-md p-1 rounded-full border border-white/10">
                   <button 
                     onClick={() => currentPage > 0 && setCurrentPage(currentPage - 1)}
                     disabled={currentPage === 0}
-                    className="p-3 bg-white/10 hover:bg-white/20 disabled:opacity-20 rounded-full text-white backdrop-blur-md transition-all active:scale-90"
+                    className="p-2.5 hover:bg-white/10 disabled:opacity-20 rounded-full text-white transition-all active:scale-90"
                   >
-                    <ChevronLeft size={24} />
+                    <ChevronLeft size={22} />
                   </button>
                   
-                  <div className="flex items-center gap-1 bg-black/60 rounded-full p-1.5 border border-white/10 backdrop-blur-xl">
+                  <div className="flex items-center gap-1">
                     <button 
                       onClick={() => setIsFitToScreen(!isFitToScreen)} 
-                      className={`p-2.5 rounded-full transition-all ${isFitToScreen ? 'bg-[#D4A800] text-black shadow-[0_0_20px_rgba(212,168,0,0.5)]' : 'text-white hover:bg-white/10'}`}
+                      className={`p-2.5 rounded-full transition-all ${isFitToScreen ? 'text-[#D4A800] bg-[#D4A800]/10' : 'text-white hover:bg-white/10'}`}
                     >
-                      {isFitToScreen ? <Maximize size={20} /> : <Minimize2 size={20} />}
+                      {isFitToScreen ? <Maximize size={18} /> : <Minimize2 size={18} />}
                     </button>
                     <div className="w-[1px] h-4 bg-white/20 mx-1" />
                     <button 
