@@ -10,7 +10,6 @@ const navItems = [
   // Latest should always open today's edition based on date, not a static path.
   { name: 'Latest', href: '#', icon: Newspaper, isModal: 'latest' as const },
   { name: 'Calendar', href: '#', icon: Calendar, isModal: true as const },
-  { name: 'Download', href: '/downloads', icon: Download, isModal: false as const },
   { name: 'Share', href: '#', icon: Share2, isModal: 'share' as const },
 ];
 

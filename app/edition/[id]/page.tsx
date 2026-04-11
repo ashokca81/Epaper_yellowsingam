@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, ZoomIn, Crop, X, Share2, Copy, ExternalLink,
 import Image from 'next/image';
 import Link from 'next/link';
 import { useState, use, useRef, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import html2canvas from 'html2canvas';
 
 interface EditionPage {
@@ -30,7 +31,8 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
   const [mainImageError, setMainImageError] = useState(false);
   const [mainImageRetry, setMainImageRetry] = useState(0);
   const [thumbRetries, setThumbRetries] = useState<Record<number, number>>({});
-  const [currentPage, setCurrentPage] = useState(0);
+  const [[currentPage, direction], setPage] = useState([0, 0]);
+  const [currentClipId, setCurrentClipId] = useState('');
   const [cropImageLoaded, setCropImageLoaded] = useState(false);
   const [isZoomOpen, setIsZoomOpen] = useState(false);
   const [isFitToScreen, setIsFitToScreen] = useState(false);
@@ -106,6 +108,12 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
     setMainImageError(false);
     setMainImageRetry(0);
   }, [currentPage, edition?._id]);
+
+  const setCurrentPage = (newVal: number | ((prev: number) => number)) => {
+    const newIndex = typeof newVal === 'function' ? newVal(currentPage) : newVal;
+    const newDirection = newIndex > currentPage ? 1 : -1;
+    setPage([newIndex, newDirection]);
+  };
   
   const pages = edition?.pages || [];
   const totalPages = pages.length;
@@ -326,13 +334,45 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
     if (Math.abs(diff) > 50) { // Threshold for swipe
       if (diff > 0) {
         // Swipe left -> Next page
-        setCurrentPage(prev => Math.min(totalPages - 1, prev + 1));
+        if (currentPage < totalPages - 1) {
+          setPage([currentPage + 1, 1]);
+        }
       } else {
         // Swipe right -> Prev page
-        setCurrentPage(prev => Math.max(0, prev - 1));
+        if (currentPage > 0) {
+          setPage([currentPage - 1, -1]);
+        }
       }
     }
     setSwipeStart(null);
+  };
+
+  const pageVariants = {
+    enter: (direction: number) => ({
+      rotateY: direction > 0 ? 90 : -90,
+      opacity: 0,
+      transformOrigin: direction > 0 ? "left" : "right"
+    }),
+    center: {
+      zIndex: 1,
+      rotateY: 0,
+      opacity: 1,
+      scale: 1,
+      transition: {
+        rotateY: { type: 'spring', stiffness: 200, damping: 25 } as any,
+        opacity: { duration: 0.3 }
+      }
+    },
+    exit: (direction: number) => ({
+      zIndex: 0,
+      rotateY: direction < 0 ? 90 : -90,
+      opacity: 0,
+      transformOrigin: direction < 0 ? "left" : "right",
+      transition: {
+        rotateY: { type: 'spring', stiffness: 200, damping: 25 } as any,
+        opacity: { duration: 0.3 }
+      }
+    })
   };
 
   // Reset zoom when opening
@@ -426,9 +466,14 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
     if (!currentPageUrl) return;
 
     const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://yellowsingam.com';
-    const dynamicLink = `${baseUrl}/edition/${id}/clip?url=${encodeURIComponent(currentPageUrl)}&x=${crop.x}&y=${crop.y}&w=${crop.w}&h=${crop.h}&title=${encodeURIComponent(edition?.name || 'ePaper Clip')}&base=${encodeURIComponent(baseUrl)}`;
+    const clipId = `C-${Math.floor(100000 + Math.random() * 900000)}`;
+    const displayDate = formatDate(edition?.date || new Date().toISOString());
+    const pageNum = currentPage + 1;
+
+    const dynamicLink = `${baseUrl}/edition/${id}/clip?url=${encodeURIComponent(currentPageUrl)}&x=${crop.x}&y=${crop.y}&w=${crop.w}&h=${crop.h}&title=${encodeURIComponent(edition?.name || 'ePaper Clip')}&base=${encodeURIComponent(baseUrl)}&date=${encodeURIComponent(displayDate)}&page=${pageNum}&cid=${clipId}`;
     
     setGeneratedLink(dynamicLink);
+    setCurrentClipId(clipId);
     setIsShareModalOpen(true);
   };
 
@@ -558,8 +603,8 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
       <div className="hidden md:flex sticky top-0 z-40 bg-white border shadow-sm p-2 flex-wrap items-center justify-between gap-4 rounded-sm">
         <div className="flex items-center gap-1 text-sm overflow-x-auto pb-1 sm:pb-0 w-full sm:w-auto">
           <button
-            onClick={() => setCurrentPage(0)}
-            disabled={currentPage === 0}
+            onClick={() => !isCropOpen && setCurrentPage(0)}
+            disabled={currentPage === 0 || isCropOpen}
             className="px-3 py-1.5 border hover:bg-gray-50 bg-white whitespace-nowrap disabled:opacity-30"
           >
             &laquo; First
@@ -567,26 +612,31 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
           {pages.map((page, index) => (
             <button
               key={page.pageNum}
-              onClick={() => setCurrentPage(index)}
-              onMouseEnter={() => handlePageHover(index)}
+              onClick={() => !isCropOpen && setCurrentPage(index)}
+              onMouseEnter={() => !isCropOpen && handlePageHover(index)}
               className={`px-3 py-1.5 border whitespace-nowrap ${index === currentPage
                 ? 'bg-[#D4A800] text-white font-bold'
                 : 'hover:bg-gray-50 bg-white'
-                }`}
+                } ${isCropOpen ? 'opacity-50 cursor-not-allowed' : ''}`}
+              disabled={isCropOpen}
             >
               {page.pageNum}
             </button>
           ))}
           <button
-            onClick={() => setCurrentPage(totalPages - 1)}
-            disabled={currentPage === totalPages - 1}
+            onClick={() => !isCropOpen && setCurrentPage(totalPages - 1)}
+            disabled={currentPage === totalPages - 1 || isCropOpen}
             className="px-3 py-1.5 border hover:bg-gray-50 bg-white whitespace-nowrap disabled:opacity-30"
           >
             Last &raquo;
           </button>
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-          <button onClick={() => setIsZoomOpen(true)} className="flex items-center gap-2 bg-[#1f1f1f] text-white px-4 py-2 rounded-lg text-sm hover:bg-[#2a2a2a] active:bg-[#1f1f1f] transition-all duration-200 active:scale-95 shadow-md hover:shadow-lg font-medium">
+          <button 
+            onClick={() => !isCropOpen && setIsZoomOpen(true)} 
+            disabled={isCropOpen}
+            className={`flex items-center gap-2 bg-[#1f1f1f] text-white px-4 py-2 rounded-lg text-sm transition-all duration-200 shadow-md font-medium ${isCropOpen ? 'opacity-30 cursor-not-allowed' : 'hover:bg-[#2a2a2a] active:bg-[#1f1f1f] active:scale-95 hover:shadow-lg'}`}
+          >
             <ZoomIn size={16} /> <span className="hidden sm:inline">Zoom</span>
           </button>
           <button onClick={() => setIsCropOpen(true)} className="flex items-center gap-1 bg-red-600 text-white px-3 py-1.5 rounded-sm text-sm hover:bg-red-700 transition-colors">
@@ -600,30 +650,43 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
         {/* Main Image - Full width touch area */}
         <div
           ref={mobileContainerRef}
-          className={`relative w-full flex-1 min-h-0 ${!isCropOpen ? 'cursor-zoom-in' : ''}`}
+          className={`relative w-full flex-1 min-h-0 ${!isCropOpen ? 'cursor-zoom-in' : ''} overflow-hidden`}
+          style={{ perspective: '1200px' }}
           onClick={() => !isCropOpen && setIsZoomOpen(true)}
           onTouchStart={isCropOpen ? undefined : handleSwipeStart}
           onTouchMove={isCropOpen ? handleTouchMove : undefined}
           onTouchEnd={isCropOpen ? handleTouchEnd : handleSwipeEnd}
         >
-          <Image
-            key={`mobile-main-${currentPage}-${mainImageRetry}`}
-            src={getCurrentPageProxyUrl()}
-            alt="Main Page View"
-            fill
-            className="object-contain"
-            sizes="100vw"
-            priority
-            referrerPolicy="no-referrer"
-            onLoad={() => {
-              setMainImageLoading(false);
-              setMainImageError(false);
-            }}
-            onError={() => {
-              setMainImageLoading(false);
-              setMainImageError(true);
-            }}
-          />
+          <AnimatePresence initial={false} custom={direction}>
+            <motion.div
+              key={currentPage}
+              custom={direction}
+              variants={pageVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              className="absolute inset-0 w-full h-full"
+            >
+              <Image
+                key={`mobile-main-${currentPage}-${mainImageRetry}`}
+                src={getCurrentPageProxyUrl()}
+                alt="Main Page View"
+                fill
+                className="object-contain"
+                sizes="100vw"
+                priority
+                referrerPolicy="no-referrer"
+                onLoad={() => {
+                  setMainImageLoading(false);
+                  setMainImageError(false);
+                }}
+                onError={() => {
+                  setMainImageLoading(false);
+                  setMainImageError(true);
+                }}
+              />
+            </motion.div>
+          </AnimatePresence>
           {mainImageLoading && (
             <div className="fixed inset-0 z-[100] pointer-events-none flex items-center justify-center px-6">
               <div className="flex flex-col items-center gap-4 bg-black/60 backdrop-blur-xl p-8 rounded-[2rem] border border-white/20 shadow-2xl pointer-events-auto animate-in fade-in zoom-in duration-300">
@@ -715,19 +778,27 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                   <div className="absolute left-2/3 top-0 bottom-0 w-[1px] bg-white/40" />
                 </div>
 
-                {/* Action buttons */}
-                <div className="absolute -top-12 right-0 flex gap-2">
+                {/* Action buttons - Labeled & Large - Smart Positioning */}
+                <div 
+                  className="absolute left-0 right-0 flex justify-center gap-3 transition-all duration-300"
+                  style={{ 
+                    top: crop.y < 12 ? 'calc(100% + 12px)' : '-60px',
+                    zIndex: 50
+                  }}
+                >
                   <button
                     onClick={handleShareClick}
-                    className="bg-[#1877f2] text-white p-2.5 rounded-lg flex items-center justify-center shadow-lg active:scale-95 transition-transform"
+                    className="bg-[#007bff] text-white px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-[0_4px_15px_rgba(0,123,255,0.4)] active:scale-95 transition-all font-bold text-sm"
                   >
-                    <Share2 size={20} />
+                    <Share2 size={18} />
+                    <span>Share</span>
                   </button>
                   <button
                     onClick={() => setIsCropOpen(false)}
-                    className="bg-[#dc3545] text-white p-2.5 rounded-lg flex items-center justify-center shadow-lg active:scale-95 transition-transform"
+                    className="bg-[#1a1a1a] text-white px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-[0_4px_15px_rgba(0,0,0,0.4)] active:scale-95 transition-all font-bold text-sm border border-white/20"
                   >
-                    <X size={20} />
+                    <X size={18} />
+                    <span>Cancel</span>
                   </button>
                 </div>
 
@@ -871,27 +942,40 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
           <div className="bg-gray-50">
             <div 
               ref={containerRef} 
-              className="relative aspect-[2/3] w-full bg-white shadow-md border-b overflow-hidden touch-none cursor-zoom-in"
-              onClick={() => setIsZoomOpen(true)}
+              className={`relative aspect-[2/3] w-full bg-white shadow-md border-b overflow-hidden touch-none ${!isCropOpen ? 'cursor-zoom-in' : ''}`}
+              style={{ perspective: '1200px' }}
+              onClick={() => !isCropOpen && setIsZoomOpen(true)}
             >
-              <Image
-                key={`desktop-main-${currentPage}-${mainImageRetry}`}
-                src={getCurrentPageProxyUrl()}
-                alt="Main Page View"
-                fill
-                className="object-contain"
-                referrerPolicy="no-referrer"
-                sizes="(max-width: 1024px) 100vw, 800px"
-                loading="eager"
-                onLoad={() => {
-                  setMainImageLoading(false);
-                  setMainImageError(false);
-                }}
-                onError={() => {
-                  setMainImageLoading(false);
-                  setMainImageError(true);
-                }}
-              />
+              <AnimatePresence initial={false} custom={direction}>
+                <motion.div
+                  key={currentPage}
+                  custom={direction}
+                  variants={pageVariants}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  className="absolute inset-0 w-full h-full"
+                >
+                  <Image
+                    key={`desktop-main-${currentPage}-${mainImageRetry}`}
+                    src={getCurrentPageProxyUrl()}
+                    alt="Main Page View"
+                    fill
+                    className="object-contain"
+                    referrerPolicy="no-referrer"
+                    sizes="(max-width: 1024px) 100vw, 800px"
+                    loading="eager"
+                    onLoad={() => {
+                      setMainImageLoading(false);
+                      setMainImageError(false);
+                    }}
+                    onError={() => {
+                      setMainImageLoading(false);
+                      setMainImageError(true);
+                    }}
+                  />
+                </motion.div>
+              </AnimatePresence>
               {mainImageLoading && (
                 <div className="fixed inset-0 z-[100] pointer-events-none flex items-center justify-center">
                   <div className="flex flex-col items-center gap-4 bg-white/90 backdrop-blur-xl p-10 rounded-3xl border border-gray-100 shadow-[0_20px_50px_rgba(0,0,0,0.1)] pointer-events-auto animate-in fade-in zoom-in duration-300">
@@ -939,20 +1023,29 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                     }}
                     onPointerDown={(e) => handlePointerDown(e, 'move')}
                   >
-                    <div className="absolute top-2 right-2 flex gap-1 pointer-events-auto">
+                    {/* Action buttons - Branded Labeled Style - Smart Positioning */}
+                    <div 
+                      className="absolute left-0 right-0 flex justify-center gap-3 pointer-events-auto transition-all duration-300"
+                      style={{ 
+                        top: crop.y < 12 ? 'calc(100% + 15px)' : '-60px',
+                        zIndex: 50
+                      }}
+                    >
                       <button
                         onClick={handleShareClick}
                         onPointerDown={(e) => e.stopPropagation()}
-                        className="bg-[#1877f2] text-white p-1.5 rounded-sm hover:bg-blue-700 flex items-center justify-center cursor-pointer transition-colors"
+                        className="bg-[#007bff] text-white px-6 py-2.5 rounded-xl flex items-center gap-2 shadow-[0_4px_20px_rgba(0,123,255,0.4)] hover:bg-[#0069d9] transition-all font-bold text-sm"
                       >
-                        <Share2 size={16} />
+                        <Share2 size={18} />
+                        <span>Share</span>
                       </button>
                       <button
                         onClick={() => setIsCropOpen(false)}
                         onPointerDown={(e) => e.stopPropagation()}
-                        className="bg-[#dc3545] text-white p-1.5 rounded-sm hover:bg-red-700 flex items-center justify-center cursor-pointer transition-colors"
+                        className="bg-[#1a1a1a] text-white px-6 py-2.5 rounded-xl flex items-center gap-2 shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:bg-[#000000] transition-all font-bold text-sm border border-white/20"
                       >
-                        <X size={16} />
+                        <X size={18} />
+                        <span>Cancel</span>
                       </button>
                     </div>
 
@@ -1251,22 +1344,34 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
             </div>
 
             {/* Body */}
-            <div className="p-4 flex flex-col gap-4 overflow-y-auto max-h-[80vh]">
-              {/* Cropped Image Preview */}
-              <div className="relative w-full h-[300px] bg-gray-100 border flex items-center justify-center p-2 sm:p-4">
-                <div ref={previewRef} className="relative flex items-center justify-center max-w-full max-h-full shadow-md">
-                  {/* SVG to force aspect ratio */}
-                  <svg
-                    width={Math.max(1, crop.w * 8)}
-                    height={Math.max(1, crop.h * 12)}
-                    viewBox={`0 0 ${Math.max(1, crop.w * 8)} ${Math.max(1, crop.h * 12)}`}
-                    className="max-h-[260px] w-auto max-w-full block opacity-0 pointer-events-none"
-                  />
+            <div className="p-4 flex flex-col gap-4 overflow-y-auto max-h-[85vh] bg-gray-50">
+              {/* Branded Preview Card */}
+              <div className="flex justify-center p-2">
+                <div 
+                  ref={previewRef} 
+                  className="bg-white border-[8px] border-[#D4A800] shadow-xl w-full max-w-sm flex flex-col overflow-hidden"
+                >
+                  {/* Card Header - Banner Style with Text */}
+                  <div className="bg-white flex flex-col border-b border-gray-100">
+                    <div className="h-1 bg-[#2D3A2D] w-full" />
+                    <div className="p-3 flex items-center justify-center bg-white gap-2">
+                      <img src="/logo.png" alt="Logo" className="h-10 w-10 object-contain flex-shrink-0" />
+                      <div className="flex flex-col items-center">
+                        <span className="text-xl font-black text-[#D4A800] leading-none uppercase">
+                          Yellow Singam
+                        </span>
+                        <span className="text-[8px] text-gray-500 font-medium tracking-[0.2em] uppercase italic">
+                          hunting for truth
+                        </span>
+                      </div>
+                    </div>
+                    <div className="h-[0.5px] bg-black/10 w-full" />
+                  </div>
 
-                  {/* Actual content */}
-                  <div className="absolute inset-0 overflow-hidden bg-white">
+                  {/* Image Area */}
+                  <div className="relative h-[250px] bg-white flex items-center justify-center p-2">
                     {getCurrentPageUrl() ? (
-                      <>
+                      <div className="relative w-full h-full overflow-hidden">
                         <img
                           src={getCurrentPageUrl()}
                           alt="Cropped Preview"
@@ -1277,39 +1382,47 @@ export default function EditionDetails({ params }: { params: Promise<{ id: strin
                             left: `-${(crop.x / crop.w) * 100}%`,
                             top: `-${(crop.y / crop.h) * 100}%`,
                           }}
-                          onLoad={() => {
-                            setCropImageLoaded(true);
-                          }}
-                          onError={(e) => {
-                            setCropImageLoaded(false);
-                          }}
+                          onLoad={() => setCropImageLoaded(true)}
                         />
-                        {!cropImageLoaded && (
-                          <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
-                            <Loader2 className="w-8 h-8 animate-spin text-[#D4A800]" />
-                          </div>
-                        )}
-                      </>
+                      </div>
                     ) : (
-                      <div className="flex items-center justify-center h-full text-gray-400">
-                        <div className="text-center">
-                          <ImageIcon size={48} className="mx-auto mb-2 text-gray-300" />
-                          <p>No image available</p>
-                        </div>
+                      <div className="text-gray-300 flex flex-col items-center">
+                        <ImageIcon size={48} />
+                        <span className="text-xs">No preview</span>
                       </div>
                     )}
+                  </div>
+
+                  {/* Card Footer */}
+                  <div className="bg-[#D4A800] p-2 text-center">
+                    <div className="text-[#2D2D2D] font-bold text-[9px] uppercase tracking-tighter">
+                      epaper.yellowsingam.com | {formatDate(edition?.date)} | P: {currentPage + 1} | CID: {currentClipId}
+                    </div>
+                    <div className="text-[#2D2D2D]/90 text-[8px] font-medium mt-0.5">
+                      For more details, visit our ePaper
+                    </div>
                   </div>
                 </div>
               </div>
 
               {/* Link Input */}
-              <div className="flex justify-center mt-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={generatedLink}
-                  className="w-full max-w-lg border border-gray-400 p-2.5 rounded-sm text-center text-gray-800 bg-gray-50 font-medium"
-                />
+              <div className="flex justify-center mt-2 px-2">
+                <div className="relative w-full max-w-lg">
+                  <input
+                    type="text"
+                    readOnly
+                    value={generatedLink}
+                    className="w-full border border-gray-300 p-3 pr-12 rounded-xl text-center text-sm font-medium bg-white shadow-inner"
+                  />
+                  <Copy 
+                    size={18} 
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 cursor-pointer hover:text-[#D4A800]"
+                    onClick={() => {
+                      navigator.clipboard.writeText(generatedLink);
+                      alert('Link copied!');
+                    }}
+                  />
+                </div>
               </div>
 
               {/* Social Buttons */}
