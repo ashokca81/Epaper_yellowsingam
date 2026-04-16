@@ -512,7 +512,8 @@ export default function PublishEdition() {
         return;
       }
 
-      // Keep existing multipart flow for non-image upload types.
+      // Keep existing multipart flow for non-image upload types (PDF → images on server).
+      setUploadProgress(formData.uploadType === 'pdf' ? 5 : 1);
       const uploadData = new FormData();
       uploadData.append('name', formData.name);
       uploadData.append('alias', folderName);
@@ -723,6 +724,12 @@ export default function PublishEdition() {
                 <p className="text-gray-400 text-sm mb-6">
                   Supported formats: {formData.uploadType === 'pdf' ? 'PDF' : 'JPG, PNG'}
                 </p>
+                {formData.uploadType === 'pdf' && (
+                  <p className="text-gray-500 text-xs mb-6 max-w-md text-center">
+                    Each PDF page is converted to images on the server, uploaded to cloud storage, then saved with your
+                    chosen status (Live / Scheduled / Draft).
+                  </p>
+                )}
                 <label className="flex items-center gap-2 px-6 py-3 bg-gray-900 text-white rounded-xl font-semibold cursor-pointer hover:bg-gray-800 transition-colors">
                   <span>+ BROWSE</span>
                   <input
@@ -787,7 +794,11 @@ export default function PublishEdition() {
             {uploading && (
               <div className="w-full">
                 <div className="flex items-center justify-between text-sm text-gray-600 mb-1">
-                  <span>Uploading files...</span>
+                  <span>
+                    {formData.uploadType === 'pdf'
+                      ? 'Converting PDF to images and uploading…'
+                      : 'Uploading files…'}
+                  </span>
                   <span className="font-semibold">{uploadProgress}%</span>
                 </div>
                 <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">

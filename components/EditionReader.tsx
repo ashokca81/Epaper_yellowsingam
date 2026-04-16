@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import HTMLFlipBook from 'react-pageflip';
 
 interface EditionPage {
   filename: string;
@@ -35,6 +36,7 @@ export default function EditionReader({ initialEdition, alias }: EditionReaderPr
   const [mainImageRetry, setMainImageRetry] = useState(0);
   const [thumbRetries, setThumbRetries] = useState<Record<number, number>>({});
   const [[currentPage, direction], setPage] = useState([0, 0]);
+  const [isPageTurning, setIsPageTurning] = useState(false);
   const [currentClipId, setCurrentClipId] = useState('');
   const [cropImageLoaded, setCropImageLoaded] = useState(false);
   const [isZoomOpen, setIsZoomOpen] = useState(false);
@@ -53,12 +55,17 @@ export default function EditionReader({ initialEdition, alias }: EditionReaderPr
   const [imageTransform, setImageTransform] = useState({ scale: 1, x: 0, y: 0 });
   const mobileZoomRef = useRef<HTMLDivElement>(null);
   const lastTapRef = useRef<number>(0);
+  const flipLockRef = useRef(false);
+  const flipUnlockTimerRef = useRef<number | null>(null);
+  const loadedPageNumsRef = useRef<Set<number>>(new Set());
+  const mobileTapGestureRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const touchStartRef = useRef<{ touches: { x: number; y: number }[]; scale: number; x: number; y: number } | null>(null);
   const lastDistanceRef = useRef<number>(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const mobileContainerRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const zoomContainerRef = useRef<HTMLDivElement>(null);
+  const mobileFlipBookRef = useRef<any>(null);
   const dragRef = useRef<{ type: 'move' | 'resize', handle?: string, startX: number, startY: number, startCrop: typeof crop } | null>(null);
   const touchRef = useRef<{ type: 'move' | 'resize', handle?: string, startX: number, startY: number, startCrop: typeof crop } | null>(null);
 
@@ -94,10 +101,46 @@ export default function EditionReader({ initialEdition, alias }: EditionReaderPr
   };
 
   useEffect(() => {
-    setMainImageLoading(true);
+    const activePageNum = edition?.pages?.[currentPage]?.pageNum;
+    if (activePageNum && loadedPageNumsRef.current.has(activePageNum)) {
+      setMainImageLoading(false);
+    } else {
+      setMainImageLoading(true);
+    }
     setMainImageError(false);
     setMainImageRetry(0);
   }, [currentPage, edition?._id]);
+
+  useEffect(() => {
+    setIsPageTurning(true);
+    const timer = window.setTimeout(() => setIsPageTurning(false), 520);
+    return () => window.clearTimeout(timer);
+  }, [currentPage]);
+
+  useEffect(() => {
+    if (isCropOpen || isZoomOpen) return;
+    const mobileApi = mobileFlipBookRef.current?.pageFlip?.();
+
+    if (mobileApi && mobileApi.getCurrentPageIndex() !== currentPage && !flipLockRef.current) {
+      // Direct jump to tapped page index; avoids sequential multi-page flips.
+      flipLockRef.current = true;
+      if (typeof mobileApi.turnToPage === 'function') {
+        mobileApi.turnToPage(currentPage);
+      } else {
+        mobileApi.flip(currentPage);
+      }
+      if (flipUnlockTimerRef.current) window.clearTimeout(flipUnlockTimerRef.current);
+      flipUnlockTimerRef.current = window.setTimeout(() => {
+        flipLockRef.current = false;
+      }, 450);
+    }
+  }, [currentPage, isCropOpen, isZoomOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (flipUnlockTimerRef.current) window.clearTimeout(flipUnlockTimerRef.current);
+    };
+  }, []);
 
   // Prevent body scroll when zoom is open
   useEffect(() => {
@@ -128,7 +171,45 @@ export default function EditionReader({ initialEdition, alias }: EditionReaderPr
     const newDirection = newIndex > currentPage ? 1 : -1;
     setPage([newIndex, newDirection]);
   };
-  
+
+  const handleFlipBookTurn = (event: any) => {
+    if (flipLockRef.current) return;
+    const newIndex = event?.data;
+    if (typeof newIndex !== 'number' || newIndex === currentPage) return;
+    flipLockRef.current = true;
+    const newDirection = newIndex > currentPage ? 1 : -1;
+    setPage([newIndex, newDirection]);
+    if (flipUnlockTimerRef.current) window.clearTimeout(flipUnlockTimerRef.current);
+    flipUnlockTimerRef.current = window.setTimeout(() => {
+      flipLockRef.current = false;
+    }, 450);
+  };
+
+  const handleMobilePageTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    mobileTapGestureRef.current = { x: touch.clientX, y: touch.clientY, moved: false };
+  };
+
+  const handleMobilePageTouchMove = (e: React.TouchEvent) => {
+    if (!mobileTapGestureRef.current) return;
+    const touch = e.touches[0];
+    const dx = Math.abs(touch.clientX - mobileTapGestureRef.current.x);
+    const dy = Math.abs(touch.clientY - mobileTapGestureRef.current.y);
+    // 10px+ movement => treat as swipe/pan, not tap.
+    if (dx > 10 || dy > 10) {
+      mobileTapGestureRef.current.moved = true;
+    }
+  };
+
+  const handleMobilePageTouchEnd = () => {
+    const gesture = mobileTapGestureRef.current;
+    mobileTapGestureRef.current = null;
+    if (!gesture) return;
+    if (!gesture.moved && !isCropOpen && !isZoomOpen) {
+      setIsZoomOpen(true);
+    }
+  };
+
   const pages = edition?.pages || [];
   const totalPages = pages.length;
 
@@ -333,28 +414,48 @@ export default function EditionReader({ initialEdition, alias }: EditionReaderPr
 
   const pageVariants = {
     enter: (direction: number) => ({
-      rotateY: direction > 0 ? 90 : -90,
-      opacity: 0,
-      transformOrigin: direction > 0 ? "left" : "right"
+      rotateY: direction > 0 ? 86 : -86,
+      x: direction > 0 ? 38 : -38,
+      scale: 0.965,
+      opacity: 0.2,
+      filter: 'brightness(0.7) contrast(1.06)',
+      transformOrigin: direction > 0 ? 'right center' : 'left center',
+      boxShadow:
+        direction > 0
+          ? '24px 0 32px rgba(0,0,0,0.22)'
+          : '-24px 0 32px rgba(0,0,0,0.22)',
     }),
     center: {
-      zIndex: 1,
+      zIndex: 2,
       rotateY: 0,
+      x: 0,
       opacity: 1,
       scale: 1,
+      filter: 'brightness(1)',
+      boxShadow: '0 0 0 rgba(0,0,0,0)',
       transition: {
-        rotateY: { type: 'spring', stiffness: 200, damping: 25 } as any,
-        opacity: { duration: 0.3 }
+        rotateY: { duration: 0.62, ease: [0.22, 0.9, 0.18, 1] } as any,
+        x: { duration: 0.58, ease: [0.22, 0.9, 0.18, 1] } as any,
+        scale: { duration: 0.48 } as any,
+        opacity: { duration: 0.34 },
       }
     },
     exit: (direction: number) => ({
-      zIndex: 0,
-      rotateY: direction < 0 ? 90 : -90,
-      opacity: 0,
-      transformOrigin: direction < 0 ? "left" : "right",
+      zIndex: 1,
+      rotateY: direction > 0 ? -82 : 82,
+      x: direction > 0 ? -34 : 34,
+      scale: 0.97,
+      opacity: 0.14,
+      filter: 'brightness(0.68) contrast(1.04)',
+      transformOrigin: direction > 0 ? 'left center' : 'right center',
+      boxShadow:
+        direction > 0
+          ? '-22px 0 30px rgba(0,0,0,0.2)'
+          : '22px 0 30px rgba(0,0,0,0.2)',
       transition: {
-        rotateY: { type: 'spring', stiffness: 200, damping: 25 } as any,
-        opacity: { duration: 0.3 }
+        rotateY: { duration: 0.5, ease: [0.38, 0.12, 0.24, 1] } as any,
+        x: { duration: 0.48, ease: [0.38, 0.12, 0.24, 1] } as any,
+        opacity: { duration: 0.28 },
       }
     })
   };
@@ -509,12 +610,87 @@ export default function EditionReader({ initialEdition, alias }: EditionReaderPr
 
       {/* Mobile Viewer */}
       <div className="md:hidden fixed top-0 left-0 right-0 bottom-[70px] pt-14 bg-black z-40 flex flex-col">
-        <div ref={mobileContainerRef} className={`relative w-full flex-1 min-h-0 ${!isCropOpen ? 'cursor-zoom-in' : ''} overflow-hidden`} style={{ perspective: '1200px' }} onClick={() => !isCropOpen && setIsZoomOpen(true)} onTouchStart={isCropOpen ? undefined : handleSwipeStart} onTouchMove={isCropOpen ? handleTouchMove : undefined} onTouchEnd={isCropOpen ? handleTouchEnd : handleSwipeEnd}>
-          <AnimatePresence initial={false} custom={direction}>
-            <motion.div key={currentPage} custom={direction} variants={pageVariants} initial="enter" animate="center" exit="exit" className="absolute inset-0 w-full h-full">
-              <Image key={`mobile-main-${currentPage}-${mainImageRetry}`} src={getCurrentPageProxyUrl()} alt="Main Page View" fill className="object-contain" sizes="100vw" priority referrerPolicy="no-referrer" onLoad={() => setMainImageLoading(false)} onError={() => { setMainImageLoading(false); setMainImageError(true); }} />
-            </motion.div>
-          </AnimatePresence>
+        <div ref={mobileContainerRef} className={`relative w-full flex-1 min-h-0 overflow-hidden`} style={{ perspective: '1200px' }} onTouchMove={isCropOpen ? handleTouchMove : undefined} onTouchEnd={isCropOpen ? handleTouchEnd : undefined}>
+          {!isCropOpen ? (
+            <div className="absolute inset-0 bg-[#f3efe5]">
+              <HTMLFlipBook
+                ref={mobileFlipBookRef}
+                width={390}
+                height={640}
+                size="stretch"
+                minWidth={280}
+                maxWidth={520}
+                minHeight={420}
+                maxHeight={900}
+                startPage={currentPage}
+                drawShadow
+                flippingTime={820}
+                usePortrait
+                startZIndex={10}
+                autoSize
+                maxShadowOpacity={0.65}
+                showCover={false}
+                mobileScrollSupport
+                clickEventForward
+                useMouseEvents
+                swipeDistance={14}
+                showPageCorners
+                disableFlipByClick={false}
+                className="w-full h-full"
+                style={{}}
+                onFlip={handleFlipBookTurn}
+              >
+                {pages.map((p, i) => (
+                  <div
+                    key={`m-flip-${p.pageNum}`}
+                    className="relative h-full w-full bg-gradient-to-br from-white to-[#f8f5ed]"
+                    onTouchStart={handleMobilePageTouchStart}
+                    onTouchMove={handleMobilePageTouchMove}
+                    onTouchEnd={handleMobilePageTouchEnd}
+                  >
+                    <Image
+                      src={getProxyUrl(p.url, p.pageNum)}
+                      alt={`Page ${p.pageNum}`}
+                      fill
+                      className="object-contain p-1"
+                      sizes="100vw"
+                      priority={Math.abs(i - currentPage) <= 1}
+                      referrerPolicy="no-referrer"
+                      onLoad={() => {
+                        if (i === currentPage) {
+                          loadedPageNumsRef.current.add(p.pageNum);
+                          setMainImageLoading(false);
+                          setMainImageError(false);
+                        }
+                      }}
+                      onError={() => {
+                        if (i === currentPage) {
+                          setMainImageLoading(false);
+                          setMainImageError(true);
+                        }
+                      }}
+                    />
+                  </div>
+                ))}
+              </HTMLFlipBook>
+            </div>
+          ) : (
+            <AnimatePresence initial={false} custom={direction}>
+              <motion.div key={currentPage} custom={direction} variants={pageVariants} initial="enter" animate="center" exit="exit" className="absolute inset-0 w-full h-full" style={{ transformStyle: 'preserve-3d', backfaceVisibility: 'hidden' }}>
+                <Image key={`mobile-main-${currentPage}-${mainImageRetry}`} src={getCurrentPageProxyUrl()} alt="Main Page View" fill className="object-contain" sizes="100vw" priority referrerPolicy="no-referrer" onLoad={() => { const active = pages[currentPage]; if (active?.pageNum) loadedPageNumsRef.current.add(active.pageNum); setMainImageLoading(false); }} onError={() => { setMainImageLoading(false); setMainImageError(true); }} />
+              </motion.div>
+            </AnimatePresence>
+          )}
+          <div
+            className={`pointer-events-none absolute inset-y-0 transition-all duration-500 ${
+              direction > 0 ? 'left-0' : 'right-0'
+            } ${isPageTurning ? 'w-16 opacity-100' : 'w-0 opacity-0'}`}
+            style={{
+              background: direction > 0
+                ? 'linear-gradient(to right, rgba(0,0,0,0.35), rgba(255,255,255,0.08), transparent)'
+                : 'linear-gradient(to left, rgba(0,0,0,0.35), rgba(255,255,255,0.08), transparent)',
+            }}
+          />
           {mainImageLoading && <div className="fixed inset-0 z-[100] flex items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-[#D4A800]" /></div>}
           
           {/* Crop controls */}
@@ -678,6 +854,7 @@ export default function EditionReader({ initialEdition, alias }: EditionReaderPr
                   animate="center"
                   exit="exit"
                   className="absolute inset-0 w-full h-full"
+                  style={{ transformStyle: 'preserve-3d', backfaceVisibility: 'hidden' }}
                 >
                   {getCurrentPageProxyUrl() && (
                     <Image
@@ -690,6 +867,8 @@ export default function EditionReader({ initialEdition, alias }: EditionReaderPr
                       sizes="(max-width: 1024px) 100vw, (max-width: 1280px) 800px, 1200px"
                       priority
                       onLoad={() => {
+                        const active = pages[currentPage];
+                        if (active?.pageNum) loadedPageNumsRef.current.add(active.pageNum);
                         setMainImageLoading(false);
                         setMainImageError(false);
                       }}
@@ -701,6 +880,16 @@ export default function EditionReader({ initialEdition, alias }: EditionReaderPr
                   )}
                 </motion.div>
               </AnimatePresence>
+              <div
+                className={`pointer-events-none absolute inset-y-0 transition-all duration-500 ${
+                  direction > 0 ? 'left-0' : 'right-0'
+                } ${isPageTurning ? 'w-16 opacity-100' : 'w-0 opacity-0'}`}
+                style={{
+                  background: direction > 0
+                    ? 'linear-gradient(to right, rgba(0,0,0,0.35), rgba(255,255,255,0.08), transparent)'
+                    : 'linear-gradient(to left, rgba(0,0,0,0.35), rgba(255,255,255,0.08), transparent)',
+                }}
+              />
 
               {/* Crop Overlay */}
               {isCropOpen && (

@@ -2,6 +2,14 @@ import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Dev: allow loading /_next/* when the app is opened via LAN IP (not only localhost).
+  allowedDevOrigins: ['http://169.254.186.50:3000', '169.254.186.50:3000'],
+  experimental: {
+    // middleware.ts matches /api/* — Next buffers the body for middleware + route (default 10MB).
+    // Large PDF multipart uploads to /api/editions need a higher limit or FormData.parse() fails.
+    middlewareClientMaxBodySize: '100mb',
+  },
+  serverExternalPackages: ['pdf-to-img', 'pdfjs-dist', '@napi-rs/canvas'],
   eslint: {
     ignoreDuringBuilds: true,
   },
@@ -48,13 +56,6 @@ const nextConfig: NextConfig = {
       };
     }
     return config;
-  },
-  // Increase body size limit for large image uploads (100MB max)
-  api: {
-    bodyParser: {
-      sizeLimit: '100mb',
-    },
-    responseLimit: '100mb',
   },
 };
 

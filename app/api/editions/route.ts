@@ -4,6 +4,55 @@ import clientPromise from '@/lib/mongodb';
 import { uploadToR2 } from '@/lib/r2';
 import path from 'path';
 import sharp from 'sharp';
+import { pdf as pdfToImages } from 'pdf-to-img';
+
+function isPdfUpload(file: File, buffer: Buffer): boolean {
+  if (file.type === 'application/pdf') return true;
+  const name = (file.name || '').toLowerCase();
+  if (name.endsWith('.pdf')) return true;
+  return buffer.length >= 4 && buffer.subarray(0, 4).toString('ascii') === '%PDF';
+}
+
+async function uploadEditionImageBuffers(
+  rawImageBuffer: Buffer,
+  folderName: string,
+  pageNum: number
+) {
+  const pageBaseName = `page_${pageNum}`;
+  const filename = `${pageBaseName}.webp`;
+  const previewFilename = `${pageBaseName}_thumb.webp`;
+  const key = `editions/${folderName}/${filename}`;
+  const previewKey = `editions/${folderName}/${previewFilename}`;
+
+  const webpBuffer = await sharp(rawImageBuffer)
+    .rotate()
+    .webp({ quality: 82, effort: 4 })
+    .toBuffer();
+
+  const previewBuffer = await sharp(rawImageBuffer)
+    .rotate()
+    .resize({
+      width: 420,
+      height: 630,
+      fit: 'inside',
+      withoutEnlargement: true,
+    })
+    .webp({ quality: 68, effort: 4 })
+    .toBuffer();
+
+  const [url, previewUrl] = await Promise.all([
+    uploadToR2(webpBuffer, key, 'image/webp'),
+    uploadToR2(previewBuffer, previewKey, 'image/webp'),
+  ]);
+
+  return {
+    filename,
+    url,
+    pageNum,
+    previewUrl,
+    previewFilename,
+  };
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -120,7 +169,8 @@ export async function POST(request: NextRequest) {
       previewFilename?: string;
     }[] = [];
     let fileIndex = 0;
-    
+    let nextPageNum = 1;
+
     const folderName = alias || date;
 
     while (formData?.has(`file_${fileIndex}`)) {
@@ -130,46 +180,35 @@ export async function POST(request: NextRequest) {
         const buffer = Buffer.from(bytes);
 
         if (file.type.startsWith('image/')) {
-          const pageBaseName = `page_${fileIndex + 1}`;
-          const filename = `${pageBaseName}.webp`;
-          const previewFilename = `${pageBaseName}_thumb.webp`;
-          const key = `editions/${folderName}/${filename}`;
-          const previewKey = `editions/${folderName}/${previewFilename}`;
-
-          // Normalize orientation + convert to webp for bandwidth savings.
-          const webpBuffer = await sharp(buffer)
-            .rotate()
-            .webp({ quality: 82, effort: 4 })
-            .toBuffer();
-
-          // Small preview for home grid cards (low-end devices).
-          const previewBuffer = await sharp(buffer)
-            .rotate()
-            .resize({
-              width: 420,
-              height: 630,
-              fit: 'inside',
-              withoutEnlargement: true,
-            })
-            .webp({ quality: 68, effort: 4 })
-            .toBuffer();
-
-          const [url, previewUrl] = await Promise.all([
-            uploadToR2(webpBuffer, key, 'image/webp'),
-            uploadToR2(previewBuffer, previewKey, 'image/webp'),
-          ]);
-
-          files.push({
-            filename,
-            url,
-            pageNum: fileIndex + 1,
-            previewUrl,
-            previewFilename,
-          });
+          const pageMeta = await uploadEditionImageBuffers(buffer, folderName, nextPageNum);
+          files.push(pageMeta);
+          nextPageNum += 1;
+        } else if (isPdfUpload(file, buffer)) {
+          try {
+            const doc = await pdfToImages(buffer, { scale: 2.5 });
+            for await (const pagePng of doc) {
+              const pageMeta = await uploadEditionImageBuffers(
+                Buffer.from(pagePng),
+                folderName,
+                nextPageNum
+              );
+              files.push(pageMeta);
+              nextPageNum += 1;
+            }
+          } catch (pdfErr) {
+            console.error('PDF to image conversion failed:', pdfErr);
+            return NextResponse.json(
+              {
+                error:
+                  'Failed to convert PDF to images. Use a valid, unencrypted PDF or try exporting it again from your source.',
+              },
+              { status: 400 }
+            );
+          }
         } else {
           // Non-image fallback (kept for compatibility with existing flows).
           const ext = path.extname(file.name) || '.bin';
-          const filename = `page_${fileIndex + 1}${ext}`;
+          const filename = `page_${nextPageNum}${ext}`;
           const key = `editions/${folderName}/${filename}`;
           const contentType = file.type || 'application/octet-stream';
           const url = await uploadToR2(buffer, key, contentType);
@@ -177,8 +216,9 @@ export async function POST(request: NextRequest) {
           files.push({
             filename,
             url,
-            pageNum: fileIndex + 1,
+            pageNum: nextPageNum,
           });
+          nextPageNum += 1;
         }
       }
       fileIndex++;
